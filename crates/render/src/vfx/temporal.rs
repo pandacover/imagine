@@ -340,6 +340,7 @@ fn compose(p: [f64; 4]) -> Affine {
 }
 
 /// Per-frame correction transforms (current frame px → stabilised px, analysis pixels).
+#[cfg(test)]
 pub(crate) fn corrections(path: &StabilizerPath, smooth_frames: f64, no_motion: bool, preserve_scale: bool) -> Vec<Affine> {
     corrections_within(path, smooth_frames, no_motion, preserve_scale, None)
 }
@@ -483,6 +484,7 @@ type CorrectedKey = (usize, u64, bool, bool, u64);
 pub(crate) struct CorrectedCache(Mutex<HashMap<CorrectedKey, Arc<Corrected>>>);
 
 impl CorrectedCache {
+    #[cfg(test)]
     pub(crate) fn get(&self, path: &Arc<StabilizerPath>, smooth_frames: f64, no_motion: bool, preserve_scale: bool) -> Arc<Corrected> {
         self.get_within(path, smooth_frames, no_motion, preserve_scale, None)
     }
