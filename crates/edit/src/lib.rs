@@ -97,12 +97,17 @@ pub fn split_track_at(track: &mut Track, t: Tick, ctx: &mut EditCtx, links: &mut
     let left = &mut track.items[idx];
     let mut right = left.clone();
     let cut = t - left.start;
+    // a speed-ramped clip: the right piece starts on the media the cut shows (the speed
+    // keyframes are on media time, so both pieces keep their part of the ramp)
+    let ramp_cut = (left.speed_ramp().is_some() && !left.reverse && left.frame_hold.is_none()).then(|| left.moving_source_time_at(t));
     left.duration = cut;
     let new_id = ClipId(ctx.alloc());
     right.id = new_id;
     right.start = t;
     right.duration -= cut;
-    if !right.reverse && right.frame_hold.is_none() {
+    if let Some(m) = ramp_cut {
+        right.source_in = m;
+    } else if !right.reverse && right.frame_hold.is_none() {
         right.source_in += Tick((cut.0 as f64 * right.speed.abs()).round() as i64);
     } else if right.reverse {
         // reversed: the left piece now shows the later media; keep content continuous

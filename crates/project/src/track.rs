@@ -192,6 +192,12 @@ impl TrackItem {
     /// Media time at timeline time `t` ignoring any frame hold.
     pub fn moving_source_time_at(&self, t: Tick) -> Tick {
         let rel = t - self.start;
+        if let Some(r) = self.speed_ramp() {
+            // a speed ramp: the media reached after `rel` of timeline (reversed: counted back
+            // from the out point)
+            let m = if self.reverse { r.media_after(self.source_in, self.duration - rel - Tick(1)) } else { r.media_after(self.source_in, rel) };
+            return m.max(Tick::ZERO);
+        }
         let scaled = Tick((rel.0 as f64 * self.speed.abs()).round() as i64);
         if self.reverse {
             self.source_in + Tick((self.duration.0 as f64 * self.speed.abs()).round() as i64) - scaled - Tick(1)
@@ -201,6 +207,9 @@ impl TrackItem {
     }
     /// Media time consumed by the item (the source out point).
     pub fn source_out(&self) -> Tick {
+        if let Some(r) = self.speed_ramp() {
+            return r.media_after(self.source_in, self.duration);
+        }
         self.source_in + Tick((self.duration.0 as f64 * self.speed.abs()).round() as i64)
     }
     pub fn effect(&self, id: &str) -> Option<&EffectInstance> {
