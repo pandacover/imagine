@@ -277,8 +277,11 @@ fn register_gpu_frame_renderer() {
     });
 }
 
+/// Also registers the FFmpeg fallback decoder for camera formats our decoders do not read yet.
 fn register_hardware_decoders() -> filmcraft_platform::Availability {
-    filmcraft_platform::register()
+    let hardware = filmcraft_platform::register();
+    filmcraft_ffmpeg::register();
+    hardware
 }
 
 /// `path` made absolute against the working directory, as the project stores it. Unlike

@@ -43,6 +43,7 @@ filmcraft-audio-dsp = { path = "crates/audio-dsp" }
 filmcraft-frame = { path = "crates/frame" }
 filmcraft-media = { path = "crates/media" }
 filmcraft-codecs = { path = "crates/codecs" }
+filmcraft-ffmpeg = { path = "crates/ffmpeg" }
 filmcraft-project = { path = "crates/project" }
 filmcraft-edit = { path = "crates/edit" }
 filmcraft-interchange = { path = "crates/interchange" }

@@ -110,8 +110,11 @@ reproduce an image (for example, point lists traced from someone else's icon).
   reference or third-party decoders/encoders while implementing a format, even permissively licensed
   ones (libvpx, libopus, libaom, dav1d, openh264…); spec text and conformance vectors only. Record the
   spec edition used in the crate README.
-- ffmpeg/ffprobe may be used only as external test oracles and fixture generators. They are never
-  linked, bundled or shipped.
+- ffmpeg/ffprobe may be used as external test oracles and fixture generators, and by one product
+  crate: `crates/ffmpeg` runs an `ffmpeg` program the user has installed as a separate process, as
+  the last-resort decoder for streams our decoders do not support ([ADR 0002](docs/adr/0002-ffmpeg-fallback-decoder.md)).
+  FFmpeg is never linked, and is not bundled or shipped until a decision on its licence obligations
+  is recorded there.
 - Dependencies must use permissive licences: MIT/Apache-2.0/BSD/ISC/Zlib/Unicode/CC0/BSL-1.0, or
   MPL-2.0 used unmodified.
 
