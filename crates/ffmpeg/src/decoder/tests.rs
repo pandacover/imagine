@@ -137,6 +137,10 @@ fn regular_streams_keep_our_decoder_and_422_goes_to_ffmpeg() {
     let mut d = filmcraft_codecs::make_video_decoder(&camera.entry).unwrap();
     assert_eq!(d.name(), "FFmpeg (external)");
     assert_eq!(decode_all(d.as_mut(), &camera.samples).len(), camera.samples.len());
+    // only clips like these are flagged for automatic proxies
+    assert!(filmcraft_codecs::file_needs_fallback_decoder(&fixture(&ff, "h264_422_10.mp4", H264_422_10)));
+    assert!(!filmcraft_codecs::file_needs_fallback_decoder(&fixture(&ff, "h264_420_8.mp4", H264_420_8)));
+    assert!(!filmcraft_codecs::file_needs_fallback_decoder(Path::new("/no/such/clip.mp4")));
 }
 
 #[test]

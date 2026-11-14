@@ -1787,6 +1787,17 @@ fn build() -> Vec<CommandSpec> {
                     Value::Null
                 }
             };
+            // clips only the FFmpeg fallback reads play too slowly at 4K: proxies (unless ingest
+            // already makes them)
+            let ingest_proxies = ingest.get("job").is_some_and(|j| !j.is_null());
+            let auto = if ingest_proxies {
+                Value::Null
+            } else {
+                crate::proxies::auto_proxies(s, &item_ids).unwrap_or_else(|e| {
+                    errors.push(format!("proxies: {e}"));
+                    Value::Null
+                })
+            };
             let mut out = if !ingest.is_null() {
                 json!({"items": ids, "sequences": sequences, "documents": reports, "errors": errors, "ingest": ingest})
             } else if reports.is_empty() {
@@ -1796,6 +1807,9 @@ fn build() -> Vec<CommandSpec> {
             };
             if !image_sequences.is_empty() {
                 out["imageSequences"] = json!(image_sequences);
+            }
+            if !auto.is_null() {
+                out["autoProxies"] = auto;
             }
             // Newly imported files may resolve paths the project already listed as offline
             // (issue #110): rebuild s.offline.missing so the "Media missing" badge clears, and drop
