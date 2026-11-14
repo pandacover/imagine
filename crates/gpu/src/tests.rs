@@ -533,9 +533,12 @@ fn hdr_input_gpu_matches_cpu() {
         ("PQ 4000 cd/m²", hdr(Transfer::Pq), Some(4000.0)),
         ("BT.2020 SDR", ColorInfo { primaries: Primaries::Bt2020, ..ColorInfo::REC709 }, None),
     ];
-    for (name, color, peak) in cases {
+    // log footage, which the camera flags as BT.709 and the clip is interpreted as (Sony S-Log3
+    // for the a7 IV, and the others the colour pipeline knows)
+    let logs = ColorSpace::ALL.into_iter().filter(|c| c.is_log()).map(|cs| (cs, (ColorInfo { range: Range::Limited, ..ColorInfo::REC709 }, None)));
+    let cases = cases.into_iter().map(|(n, c, p)| (n.to_string(), ColorSpace::from_info(&c), (c, p))).chain(logs.map(|(cs, cp)| (format!("{cs:?}"), cs, cp)));
+    for (name, cs, (color, peak)) in cases {
         let frame = Arc::new(VideoFrame { width: w, height: h, data: data.clone(), color, par: (1, 1), pts: Default::default() });
-        let cs = ColorSpace::from_info(&color);
         let t = Arc::new(InputTransform::new(cs, color.range, &ColorPipeline::REC709, peak));
         assert!(t.gpu_params().is_some(), "{name}");
         let layer = PlanLayer { input: Some(t), ..PlanLayer::new(frame.clone(), Affine::IDENTITY, 1.0, Blend::Normal) };

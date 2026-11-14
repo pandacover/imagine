@@ -414,6 +414,57 @@ fn agree(d: f32) -> f32 {
     1.0 / (1.0 + q * q)
 }
 
+/// The motion between two frames, both ways, with the working luma it was measured on.
+struct Motion {
+    ga: Gray,
+    gb: Gray,
+    f01: Flow,
+    f10: Flow,
+}
+
+/// How many frame pairs' motion is kept. Slow motion makes several in-between frames from each
+/// pair of source frames (4 at 25 % speed, 10 at 10 %), and the motion is most of the work, so
+/// it is measured once per pair; playback and export move forward, so a few pairs are enough.
+const MOTION_CACHE: usize = 4;
+
+fn luma_key(g: &Gray) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (g.w, g.h).hash(&mut h);
+    for v in &g.px {
+        v.to_bits().hash(&mut h);
+    }
+    h.finish()
+}
+
+/// The [`Motion`] between the working lumas `ga` and `gb`: from the cache when the same pair was
+/// measured lately (compared exactly, not only by hash, so a hit always gives what measuring again
+/// would), measured otherwise. None when the two can't be compared (different sizes).
+fn motion(ga: Gray, gb: Gray) -> Option<std::sync::Arc<Motion>> {
+    use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+    type Cache = Mutex<Vec<((u64, u64), Arc<Motion>)>>;
+    static CACHE: OnceLock<Cache> = OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    let key = (luma_key(&ga), luma_key(&gb));
+    let same = |x: &Gray, y: &Gray| (x.w, x.h) == (y.w, y.h) && x.px.iter().map(|v| v.to_bits()).eq(y.px.iter().map(|v| v.to_bits()));
+    if let Some(m) =
+        cache.lock().unwrap_or_else(PoisonError::into_inner).iter().find(|(k, m)| *k == key && same(&m.ga, &ga) && same(&m.gb, &gb)).map(|(_, m)| m.clone())
+    {
+        return Some(m);
+    }
+    let (pa, pb) = (pyramid(ga), pyramid(gb));
+    let (f01, f10) = rayon::join(|| dense_flow(&pa, &pb), || dense_flow(&pb, &pa));
+    let (Some(f01), Some(f10)) = (f01, f10) else { return None };
+    let (Some(ga), Some(gb)) = (pa.into_iter().next(), pb.into_iter().next()) else { return None };
+    let m = Arc::new(Motion { ga, gb, f01, f10 });
+    let mut c = cache.lock().unwrap_or_else(PoisonError::into_inner);
+    if c.len() >= MOTION_CACHE {
+        c.remove(0);
+    }
+    c.push((key, m.clone()));
+    Some(m)
+}
+
 /// The frame between `a` (time 0) and `b` (time 1) at `t` (0..1), motion compensated. Frames of
 /// different sizes (or empty ones) fall back to the plain cross-fade.
 pub fn interpolate(a: &Image, b: &Image, t: f32) -> Image {
@@ -429,11 +480,11 @@ pub fn interpolate(a: &Image, b: &Image, t: f32) -> Image {
         return b.clone();
     }
     let s = a.w.div_ceil(WORK_W).max(1);
-    let (pa, pb) = (pyramid(work_luma(a, s)), pyramid(work_luma(b, s)));
-    let (Some(ga), Some(gb), Some(f01), Some(f10)) = (pa.first(), pb.first(), dense_flow(&pa, &pb), dense_flow(&pb, &pa)) else {
+    let Some(m) = motion(work_luma(a, s), work_luma(b, s)) else {
         return a.clone().lerp(b, t);
     };
-    let ft = flow_at(ga, gb, &f01, &f10, t);
+    let Motion { ga, gb, f01, f10 } = &*m;
+    let ft = flow_at(ga, gb, f01, f10, t);
     let sf = s as f32;
     let to_work = |v: f32| v / sf - 0.5;
     let mut out = Image::new(a.w, a.h);
@@ -621,5 +672,49 @@ mod tests {
             let (p, q) = (texture(w, h, 0.0, 0.0), texture(w, h, 1.0, 0.0));
             assert_eq!(interpolate(&p, &q, 0.5).px.len(), w * h * 4);
         }
+    }
+
+    /// Slow motion: the in-between frames of one source pair reuse its motion, and give exactly
+    /// what measuring it again would.
+    #[test]
+    fn in_between_frames_of_one_pair_reuse_its_motion() {
+        let (a, b) = (texture(320, 180, 0.0, 0.0), texture(320, 180, 3.0, 1.5));
+        let first = interpolate(&a, &b, 0.25);
+        let t0 = std::time::Instant::now();
+        let again = interpolate(&a, &b, 0.25);
+        let hit = t0.elapsed();
+        assert_eq!(first.px, again.px, "a cached pair gives the same frame");
+        // another pair is measured on its own
+        let c = texture(320, 180, -2.0, 0.5);
+        let other = interpolate(&a, &c, 0.25);
+        assert_ne!(other.px, first.px);
+        let s = a.w.div_ceil(WORK_W).max(1);
+        let m1 = motion(work_luma(&a, s), work_luma(&b, s)).unwrap();
+        let m2 = motion(work_luma(&a, s), work_luma(&b, s)).unwrap();
+        assert!(std::sync::Arc::ptr_eq(&m1, &m2), "the second ask is a cache hit");
+        eprintln!("cached in-between frame: {hit:?}");
+    }
+
+    /// `cargo test -p filmcraft-render --release flow::tests::slow_motion_speed -- --ignored --nocapture`
+    #[test]
+    #[ignore = "timing"]
+    fn slow_motion_speed() {
+        let (a, b) = (texture(1920, 1080, 0.0, 0.0), texture(1920, 1080, 6.0, 2.0));
+        let t0 = std::time::Instant::now();
+        let _ = interpolate(&a, &b, 0.25);
+        let miss = t0.elapsed();
+        let t1 = std::time::Instant::now();
+        for t in [0.5, 0.75] {
+            let _ = interpolate(&a, &b, t);
+        }
+        eprintln!("1080p: first in-between {miss:?}, next ones {:?} each", t1.elapsed() / 2);
+        let s = a.w.div_ceil(WORK_W).max(1);
+        let t2 = std::time::Instant::now();
+        let (la, lb) = (work_luma(&a, s), work_luma(&b, s));
+        let t3 = std::time::Instant::now();
+        let m = motion(la, lb).unwrap();
+        let t4 = std::time::Instant::now();
+        let _ = flow_at(&m.ga, &m.gb, &m.f01, &m.f10, 0.5);
+        eprintln!("luma {:?}, cache {:?}, flow_at {:?}", t3 - t2, t4 - t3, t4.elapsed());
     }
 }
