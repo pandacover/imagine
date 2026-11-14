@@ -270,6 +270,7 @@ fn app_creator(launch: Launch, graphics: graphics::GraphicsStart, created: Arc<A
             }
         }
         let mut app = FilmcraftApp::new(session);
+        filmcraft_ui_egui::page_bar::creator_layout(&mut app);
         app.set_startup_update_check(true);
         app.graphics_notice = notice;
         if recover == Some(false) {

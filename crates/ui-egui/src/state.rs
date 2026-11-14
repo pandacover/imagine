@@ -479,6 +479,14 @@ pub struct UiState {
     /// The status bar (hints, messages, job progress). An app that embeds FilmCraft can hide it.
     #[serde(default = "shown")]
     pub show_status_bar: bool,
+    /// Window ▸ Page Bar: the Media / Edit / Color / Effects / Audio / Deliver tabs at the bottom.
+    /// Off in a bare `UiState`; the desktop app turns it on ([`crate::page_bar::creator_layout`]).
+    #[serde(default)]
+    pub show_page_bar: bool,
+    /// Window ▸ Simple Mode: hide studio-only menus and effect folders ([`crate::page_bar`]).
+    /// Off in a bare `UiState`; the desktop app turns it on.
+    #[serde(default)]
+    pub simple_mode: bool,
     pub dark: bool,
     /// Lumetri scopes visible in the Program monitor area.
     pub show_scopes: bool,
@@ -1025,6 +1033,8 @@ impl Default for UiState {
             show_menu_bar: true,
             show_header: true,
             show_status_bar: true,
+            show_page_bar: false,
+            simple_mode: false,
             dark: true,
             show_scopes: false,
             status: String::new(),

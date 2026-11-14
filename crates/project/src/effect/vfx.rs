@@ -1155,7 +1155,7 @@ pub(super) fn apply_badges(v: &mut [EffectDef]) {
         let accel = match e.category.first().copied() {
             Some("Legacy") => !matches!(id, "camera_blur"),
             _ if folder == "Obsolete" => false,
-            _ => !matches!(id, "clone" | "stroke"),
+            _ => !matches!(id, "clone" | "stroke" | "video_denoise"),
         };
         e.accelerated = accel;
         e.float32 = a32;
@@ -1208,7 +1208,7 @@ mod tests {
         ),
         ("Keying", &["Alpha Adjust", "Color Key", "Logo Cutout", "Luma Key", "Track Matte Key", "Ultra Key"]),
         ("Lights & Glows", &["Echo Glow", "Edge Glow", "Glint", "Lens Flare", "Light Leaks", "RGB Split", "Volumetric Rays", "Wonder Glow"]),
-        ("Noise & Grain", &["Noise"]),
+        ("Noise & Grain", &["Noise", "Video Noise Reduction"]),
         ("Perspective", &["Basic 3D", "Drop Shadow", "Long Shadow"]),
         ("Stylize", &["Brush Strokes", "Color Emboss", "Find Edges", "Mosaic", "Posterize", "Roughen Edges", "Strobe Light"]),
         ("Time", &["Posterize Time"]),
@@ -1260,11 +1260,11 @@ mod tests {
                 let d = find_effect_by_name(name).unwrap_or_else(|| panic!("missing {name}"));
                 assert_eq!(d.kind, EffectKind::Video, "{name}");
                 assert_eq!(d.category, &["Video Effects", *folder], "{name} folder");
-                assert_eq!(d.accelerated, !matches!(d.id, "clone" | "stroke"), "{name} accelerated badge");
+                assert_eq!(d.accelerated, !matches!(d.id, "clone" | "stroke" | "video_denoise"), "{name} accelerated badge");
                 n += 1;
             }
         }
-        assert_eq!(n, 93);
+        assert_eq!(n, 94);
         assert_eq!(CATALOGUE.len(), 16);
         // nothing else sits in the current folders
         for d in effect_defs().iter().filter(|d| d.kind == EffectKind::Video && d.category.first() == Some(&"Video Effects")) {

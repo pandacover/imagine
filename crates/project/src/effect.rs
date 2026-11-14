@@ -609,6 +609,23 @@ fn build_effects() -> Vec<EffectDef> {
             NOISE,
             vec![f("amount", "Amount of Noise", 0.0, 0.0, 100.0, "%"), b("color", "Use Color Noise", true), b("clip", "Clipping", true)],
         ),
+        // FilmCraft's own: temporal + edge-preserving spatial noise reduction (CPU)
+        EffectDef {
+            accelerated: false,
+            ..video(
+                "video_denoise",
+                "Video Noise Reduction",
+                NOISE,
+                vec![
+                    fs("temporal_frames", "Temporal Frames", 2.0, (0.0, 4.0), (0.0, 4.0), "", 0),
+                    f("temporal", "Temporal Strength", 70.0, 0.0, 100.0, "%"),
+                    f("motion", "Motion Sensitivity", 50.0, 0.0, 100.0, "%"),
+                    f("luma", "Luma Smoothing", 30.0, 0.0, 100.0, "%"),
+                    f("chroma", "Chroma Smoothing", 60.0, 0.0, 100.0, "%"),
+                    f("detail", "Detail Preservation", 50.0, 0.0, 100.0, "%"),
+                ],
+            )
+        },
         video("median", "Median", vfx::OBSOLETE, vec![fs("radius", "Radius", 0.0, (0.0, 100.0), (0.0, 20.0), "", 0)]),
         video(
             "crop",
