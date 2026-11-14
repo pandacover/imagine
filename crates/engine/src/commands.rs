@@ -983,6 +983,7 @@ fn import_source(
         v.frame_rate = crate::settings::timebase_rate(&s.prefs.media.indeterminate_timebase);
     }
     let path_s = path.to_string();
+    let camera_space = info.video.as_ref().and_then(|_| filmcraft_codecs::camera_meta::camera_color_space(std::path::Path::new(path)));
     s.media.allow(path);
     let id = s.edit(&format!("Import {name}"), |p, _| {
         Ok(p.add_item(
@@ -991,7 +992,8 @@ fn import_source(
             ItemKind::Media(Box::new(MediaClip {
                 media: MediaRef::File { path: path_s },
                 info,
-                interpret: Default::default(),
+                // Sony S-Log3 clips say BT.709 in the stream: interpret them as recorded
+                interpret: filmcraft_project::Interpretation { color_space: camera_space, ..Default::default() },
                 mark_in: None,
                 mark_out: None,
                 markers: vec![],

@@ -24,6 +24,7 @@
 pub mod apv;
 pub mod audio;
 pub mod avi;
+pub mod camera_meta;
 pub mod gop;
 pub mod hw;
 mod hw_frame;
