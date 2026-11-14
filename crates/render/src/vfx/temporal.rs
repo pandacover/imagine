@@ -341,6 +341,19 @@ fn compose(p: [f64; 4]) -> Affine {
 
 /// Per-frame correction transforms (current frame px → stabilised px, analysis pixels).
 pub(crate) fn corrections(path: &StabilizerPath, smooth_frames: f64, no_motion: bool, preserve_scale: bool) -> Vec<Affine> {
+    corrections_within(path, smooth_frames, no_motion, preserve_scale, None)
+}
+
+/// Rounds of smoothing and pulling back that keep a smoothed path within its zoom budget.
+const BUDGET_ROUNDS: usize = 4;
+
+/// [`corrections`], and with `max_zoom` the smoothed path kept close enough to the real one that
+/// no frame needs more than that zoom to hide its borders. Walking shots need strong smoothing to
+/// take out the footstep bounce, and plain smoothing then drifts so far from the real path on a
+/// turn that Auto-scale runs out of zoom and black borders show. Here the path is smoothed, every
+/// frame that needs too much zoom is pulled back toward the real path just enough, and the result
+/// is smoothed again, a few rounds, ending with a pull so the budget always holds.
+pub(crate) fn corrections_within(path: &StabilizerPath, smooth_frames: f64, no_motion: bool, preserve_scale: bool, max_zoom: Option<f64>) -> Vec<Affine> {
     let n = path.steps.len() + 1;
     // cumulative: frame 0 → frame k, about the frame centre for stable angle/scale decomposition
     let (cxp, cyp) = (path.w as f64 / 2.0, path.h as f64 / 2.0);
@@ -358,41 +371,84 @@ pub(crate) fn corrections(path: &StabilizerPath, smooth_frames: f64, no_motion: 
         let wrap = (d / std::f64::consts::TAU).round() * std::f64::consts::TAU;
         params[k][2] -= wrap;
     }
-    let smoothed: Vec<[f64; 4]> = if no_motion {
-        let mean = params.iter().fold([0.0; 4], |a, p| [a[0] + p[0], a[1] + p[1], a[2] + p[2], a[3] + p[3]]).map(|v| v / n as f64);
-        vec![mean; n]
-    } else {
-        let sigma = smooth_frames.max(0.01);
+    let smooth = |src: &[[f64; 4]]| -> Vec<[f64; 4]> {
+        if no_motion {
+            let mean = src.iter().fold([0.0; 4], |a, p| [a[0] + p[0], a[1] + p[1], a[2] + p[2], a[3] + p[3]]).map(|v| v / n as f64);
+            return vec![mean; n];
+        }
+        let sigma = smooth_frames.clamp(0.01, 20_000.0);
         let r = (sigma * 3.0).ceil() as isize;
+        let weights: Vec<f64> = (-r..=r).map(|j| (-(j as f64).powi(2) / (2.0 * sigma * sigma)).exp()).collect();
         (0..n as isize)
             .map(|k| {
                 let mut acc = [0.0; 4];
                 let mut ws = 0.0;
-                for j in -r..=r {
+                for (j, w) in (-r..=r).zip(&weights) {
                     let i = (k + j).clamp(0, n as isize - 1) as usize;
-                    let w = (-(j as f64).powi(2) / (2.0 * sigma * sigma)).exp();
+                    let Some(p) = src.get(i) else { continue };
                     for c in 0..4 {
-                        acc[c] += params[i][c] * w;
+                        acc[c] += p[c] * w;
                     }
                     ws += w;
                 }
-                acc.map(|v| v / ws)
+                acc.map(|v| v / ws.max(1e-12))
             })
             .collect()
     };
-    (0..n)
-        .map(|k| {
-            let mut sp = smoothed[k];
-            if preserve_scale {
-                sp[3] = params[k][3];
+    let target = |k: usize, sm: [f64; 4]| {
+        let mut sp = sm;
+        if preserve_scale {
+            sp[3] = params[k][3];
+        }
+        sp
+    };
+    // in centred coordinates: smoothed ∘ raw⁻¹, then back to pixels
+    let correction = |raw: [f64; 4], sp: [f64; 4]| {
+        let corr = compose(raw).inverse().map(|ri| compose(sp).then_apply(&ri)).unwrap_or(Affine::IDENTITY);
+        from_c.then_apply(&corr).then_apply(&to_c)
+    };
+    let mut smoothed = smooth(&params);
+    if let Some(budget) = max_zoom.filter(|z| z.is_finite() && *z >= 1.0) {
+        let (w, h) = (path.w as f64, path.h as f64);
+        // `t` of the way from the real path to the smoothed one, as far as the budget allows
+        let pull = |k: usize, sm: [f64; 4]| -> [f64; 4] {
+            let raw = params[k];
+            let at = |t: f64| target(k, std::array::from_fn(|c| raw[c] + (sm[c] - raw[c]) * t));
+            if covered_at(&correction(raw, at(1.0)), w, h, budget) {
+                return at(1.0);
             }
-            // in centred coordinates: smoothed ∘ raw⁻¹
-            let raw = compose(params[k]);
-            let sm = compose(sp);
-            let corr = raw.inverse().map(|ri| sm.then_apply(&ri)).unwrap_or(Affine::IDENTITY);
-            from_c.then_apply(&corr).then_apply(&to_c)
-        })
-        .collect()
+            let (mut lo, mut hi) = (0.0, 1.0);
+            for _ in 0..24 {
+                let mid = (lo + hi) / 2.0;
+                if covered_at(&correction(raw, at(mid)), w, h, budget) {
+                    lo = mid;
+                } else {
+                    hi = mid;
+                }
+            }
+            at(lo)
+        };
+        let fits = |sm: &[[f64; 4]]| (0..n).all(|k| sm.get(k).is_some_and(|s| covered_at(&correction(params[k], target(k, *s)), w, h, budget)));
+        for _ in 0..BUDGET_ROUNDS {
+            if fits(&smoothed) {
+                break;
+            }
+            let pulled: Vec<[f64; 4]> = (0..n).map(|k| pull(k, smoothed[k])).collect();
+            smoothed = smooth(&pulled);
+        }
+        smoothed = (0..n).map(|k| pull(k, smoothed[k])).collect();
+    }
+    (0..n).map(|k| correction(params[k], target(k, smoothed[k]))).collect()
+}
+
+/// Whether zooming `z` about the centre hides every border `corr` exposes.
+fn covered_at(corr: &Affine, w: f64, h: f64, z: f64) -> bool {
+    let Some(inv) = corr.inverse() else { return false };
+    let (cx, cy) = (w / 2.0, h / 2.0);
+    [(0.0, 0.0), (w, 0.0), (0.0, h), (w, h)].iter().all(|&(x, y)| {
+        let q = inv.apply(Vec2::new(cx + (x - cx) / z, cy + (y - cy) / z));
+        q.x >= -0.5 && q.y >= -0.5 && q.x <= w + 0.5 && q.y <= h + 0.5
+    })
 }
 
 /// The corrections of one analysed path for one set of Smoothness / Result / Preserve Scale
@@ -420,7 +476,7 @@ impl Corrected {
     }
 }
 
-type CorrectedKey = (usize, u64, bool, bool);
+type CorrectedKey = (usize, u64, bool, bool, u64);
 
 /// Corrections already worked out, by path and settings.
 #[derive(Default)]
@@ -428,11 +484,27 @@ pub(crate) struct CorrectedCache(Mutex<HashMap<CorrectedKey, Arc<Corrected>>>);
 
 impl CorrectedCache {
     pub(crate) fn get(&self, path: &Arc<StabilizerPath>, smooth_frames: f64, no_motion: bool, preserve_scale: bool) -> Arc<Corrected> {
-        let key = (Arc::as_ptr(path) as usize, smooth_frames.to_bits(), no_motion, preserve_scale);
+        self.get_within(path, smooth_frames, no_motion, preserve_scale, None)
+    }
+
+    /// [`Self::get`] for [`corrections_within`] a zoom budget.
+    pub(crate) fn get_within(
+        &self,
+        path: &Arc<StabilizerPath>,
+        smooth_frames: f64,
+        no_motion: bool,
+        preserve_scale: bool,
+        max_zoom: Option<f64>,
+    ) -> Arc<Corrected> {
+        let key = (Arc::as_ptr(path) as usize, smooth_frames.to_bits(), no_motion, preserve_scale, max_zoom.map_or(0, f64::to_bits));
         if let Some(c) = self.0.lock().ok().and_then(|m| m.get(&key).cloned()) {
             return c;
         }
-        let c = Arc::new(Corrected { corr: corrections(path, smooth_frames, no_motion, preserve_scale), _path: path.clone(), worst: Mutex::new(Vec::new()) });
+        let c = Arc::new(Corrected {
+            corr: corrections_within(path, smooth_frames, no_motion, preserve_scale, max_zoom),
+            _path: path.clone(),
+            worst: Mutex::new(Vec::new()),
+        });
         if let Ok(mut m) = self.0.lock() {
             // a keyframed Smoothness makes a new key for every frame: don't keep them all
             if m.len() >= 16 {
@@ -447,20 +519,16 @@ impl CorrectedCache {
 /// [`corrections`] for `path`, computed once per set of settings instead of for every rendered
 /// frame: smoothing the whole path and finding its worst border took 0.8 ms per frame for a 30 s
 /// clip, 7 ms for 2 minutes and 15 ms for 10 minutes, on every frame of playback and export.
-pub(crate) fn corrected(path: &Arc<StabilizerPath>, smooth_frames: f64, no_motion: bool, preserve_scale: bool) -> Arc<Corrected> {
+pub(crate) fn corrected(path: &Arc<StabilizerPath>, smooth_frames: f64, no_motion: bool, preserve_scale: bool, max_zoom: Option<f64>) -> Arc<Corrected> {
     static CACHE: OnceLock<CorrectedCache> = OnceLock::new();
-    CACHE.get_or_init(Default::default).get(path, smooth_frames, no_motion, preserve_scale)
+    CACHE.get_or_init(Default::default).get_within(path, smooth_frames, no_motion, preserve_scale, max_zoom)
 }
 /// Smallest zoom about the centre (≥ 1) that hides the borders a correction exposes.
 pub(crate) fn cover_scale(corr: &Affine, w: f64, h: f64, max: f64) -> f64 {
-    let Some(inv) = corr.inverse() else { return 1.0 };
-    let (cx, cy) = (w / 2.0, h / 2.0);
-    let covered = |z: f64| {
-        [(0.0, 0.0), (w, 0.0), (0.0, h), (w, h)].iter().all(|&(x, y)| {
-            let q = inv.apply(Vec2::new(cx + (x - cx) / z, cy + (y - cy) / z));
-            q.x >= -0.5 && q.y >= -0.5 && q.x <= w + 0.5 && q.y <= h + 0.5
-        })
-    };
+    if corr.inverse().is_none() {
+        return 1.0;
+    }
+    let covered = |z: f64| covered_at(corr, w, h, z);
     if covered(1.0) {
         return 1.0;
     }
@@ -488,11 +556,13 @@ pub fn warp_stabilizer(img: &mut Image, e: &EffectInstance, cx: &FxCtx) {
     let k = ((cx.seconds * path.fps).round().max(0.0) as usize).min(n - 1);
     let smooth = fv(e, "smoothness", cx) as f64 / 100.0 * path.fps;
     let crop_less = fv(e, "crop_less", cx) as f64 / 100.0;
-    let corrected = corrected(&path, smooth * (0.5 + crop_less), chv(e, "result") == 1, bv(e, "preserve_scale"));
-    let corr = &corrected.corr;
     let framing = chv(e, "framing");
-    let (aw, ah) = (path.w as f64, path.h as f64);
     let max_scale = (fv(e, "max_scale", cx) as f64 / 100.0).max(1.0);
+    // Auto-scale keeps the smoothed path within its Maximum Scale, so borders never show
+    let budget = (framing == 2).then_some(max_scale);
+    let corrected = corrected(&path, smooth * (0.5 + crop_less), chv(e, "result") == 1, bv(e, "preserve_scale"), budget);
+    let corr = &corrected.corr;
+    let (aw, ah) = (path.w as f64, path.h as f64);
     let safe = 1.0 + fv(e, "action_safe", cx) as f64 / 100.0;
     let extra = fv(e, "additional_scale", cx) as f64 / 100.0;
     let zoom = match framing {
