@@ -214,3 +214,30 @@ fn undo_takes_back_a_whole_source_text_edit() {
     d.frames(3);
     assert_eq!(d.param(clip, "graphic_text", "text"), ParamValue::Text("Tomo Test".into()), "and Redo puts it back");
 }
+
+/// A clip dropped a few points after the start of an empty sequence lands at 00:00, not a frame
+/// or so later behind a sliver of a gap.
+#[test]
+fn a_drop_near_the_start_snaps_to_zero() {
+    let mut s = Session::default();
+    s.execute("file.openDemoProject", json!({})).unwrap();
+    s.execute("file.newSequence", json!({"name": "Empty", "width": 1920, "height": 1080, "fps": 24})).unwrap();
+    s.prefs.timeline.clip_mismatch_warning = false;
+    let mut d = Driver::with(s);
+    let p = d.app().session.project.clone();
+    let bin = p.root.children.iter().find_map(|e| if let BinEntry::Bin(b) = e { (b.name == "Footage").then(|| b.clone()) } else { None }).unwrap();
+    let item: ItemId =
+        bin.children.iter().find_map(|e| if let BinEntry::Item(i) = e { (p.source_streams(*i) == (true, true)).then_some(*i) } else { None }).unwrap();
+    d.ok("ui.panel.show", json!({"panel": "Project"}));
+    d.exec("project.view.set", json!({"view": "list"}));
+    d.ok("ui.menu.invoke", json!({"id": "projectPanel.openBin", "params": {"bin": bin.id.0, "how": "inPlace"}}));
+    d.frames(4);
+    let from = d.rect(&format!("project.item.{}", item.0)).center();
+    let v1 = d.rect("timeline.track.V1.target");
+    let tracks = d.rect("timeline.tracks");
+    let to = egui::pos2(tracks.min.x + 4.0, v1.center().y);
+    d.drag(from, to, |_| ());
+    let q = d.app().session.active_sequence().unwrap().clone();
+    let start = q.video_tracks[0].items.first().expect("dropped on V1").start;
+    assert_eq!(start, Tick::ZERO);
+}

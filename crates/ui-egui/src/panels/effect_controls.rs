@@ -637,9 +637,17 @@ pub(crate) fn param_row(
         }
     }
     if pd.animatable {
-        let sw = Rect::from_center_size(pos2(x, r.center().y), vec2(14.0, 14.0));
-        let resp = ui.interact(sw, egui::Id::unique(("sw", clip.0, idx, pkey)), Sense::click()).on_hover_text(tl!("Toggle animation"));
-        icons::paint(ui.painter(), sw, Icon::Stopwatch, if param.is_animated() { t.accent } else { t.text_dim });
+        // the stopwatch turns keyframing on: drawn as bright as the property's name, on a hover
+        // background, so it reads as a button (it was dim enough to miss)
+        let sw = Rect::from_center_size(pos2(x, r.center().y), vec2(16.0, 16.0));
+        let resp = ui
+            .interact(sw.expand(2.0), egui::Id::unique(("sw", clip.0, idx, pkey)), Sense::click())
+            .on_hover_text(if param.is_animated() { tl!("Stop animating (removes keyframes)") } else { tl!("Animate: add keyframes over time") })
+            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        if resp.hovered() {
+            ui.painter().rect_filled(sw.expand(2.0), 3.0, t.hover);
+        }
+        icons::paint(ui.painter(), sw, Icon::Stopwatch, if param.is_animated() { t.accent } else { t.text });
         if resp.clicked() {
             actions.push(("effects.toggleAnimation".into(), with_mask(json!({"clip": clip.0, "effect": idx, "param": pd.id}))));
         }

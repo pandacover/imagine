@@ -96,7 +96,9 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let sf = frame.and_then(|f| frame_signal(app, &ctx, "program", f, &st, prio));
     match &sf {
         Some(sf) => draw(app, ui, area, &st.shown, sf, &st, "scopes"),
-        None => crate::dock::placeholder(ui, area, &t, if app.session.state.active_sequence.is_some() { "…" } else { tl!("(no sequence)") }),
+        None => {
+            crate::dock::placeholder(ui, area, &t, if app.session.state.active_sequence.is_some() { "…" } else { tl!("(no sequence)") });
+        }
     }
     // right-click anywhere on the scopes: the settings menu
     let resp = ui.interact(area, egui::Id::unique("scopes-area"), Sense::click());

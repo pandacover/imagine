@@ -807,8 +807,18 @@ pub(crate) fn paint_widget_focus(painter: &egui::Painter, response: &egui::Respo
 }
 
 /// Placeholder body for panels that are not implemented yet.
-pub fn placeholder(ui: &mut egui::Ui, rect: Rect, t: &Tokens, text: &str) {
-    ui.painter().text(rect.center(), Align2::CENTER_CENTER, text, Tokens::ui(12.0), t.text_faint);
+/// Returns the bottom of the text, for anything placed under it.
+pub fn placeholder(ui: &mut egui::Ui, rect: Rect, t: &Tokens, text: &str) -> f32 {
+    // wrapped to the panel's width, each line centred: one long line was cut off at both edges
+    // of a narrow panel ("elect a graphic clip…")
+    let wrap = (rect.width() - 24.0).max(40.0);
+    let mut job = egui::text::LayoutJob::simple(text.to_string(), Tokens::ui(12.0), t.text_faint, wrap);
+    job.halign = egui::Align::Center;
+    let galley = ui.painter().layout_job(job);
+    let pos = egui::pos2(rect.center().x, rect.center().y - galley.size().y / 2.0);
+    let bottom = pos.y + galley.size().y;
+    ui.painter().galley(pos, galley, t.text_faint);
+    bottom
 }
 
 #[cfg(test)]

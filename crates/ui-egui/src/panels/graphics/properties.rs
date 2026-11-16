@@ -514,8 +514,8 @@ fn source_text_undo_key(ui: &egui::Ui) -> Option<&'static str> {
 pub fn properties(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let t = app.tokens;
     let Some((clip, it)) = selected_graphic(app) else {
-        crate::dock::placeholder(ui, rect, &t, tl!("Select a graphic clip, or use the Type tool (T) on the Program monitor"));
-        let br = Rect::from_center_size(rect.center() + vec2(0.0, 30.0), vec2(150.0, 26.0));
+        let bottom = crate::dock::placeholder(ui, rect, &t, tl!("Select a graphic clip, or use the Type tool (T) on the Program monitor"));
+        let br = Rect::from_center_size(pos2(rect.center().x, bottom.max(rect.center().y + 8.0) + 22.0), vec2(150.0, 26.0));
         let resp = ui.put(br, egui::Button::new(tl!("Create new graphic")));
         app.auto.add("graphics.createNew", br, "Create new graphic");
         if resp.clicked()
@@ -795,6 +795,11 @@ pub fn properties(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let key = egui::Id::unique("gfx-props-drag-step");
     let begun = ui.ctx().data(|d| d.get_temp::<Option<f64>>(key)).flatten();
     let mut wrote = false;
+    // the Program monitor shows the change in the next pass, not at the next input: typed text
+    // showed there a keystroke late
+    if !actions.is_empty() {
+        ui.ctx().request_repaint();
+    }
     for (cmd, mut p) in actions {
         // a drag of a property is one undo step: the first change of each press begins a new one,
         // the rest fold into it (like Effect Controls, #201 / #887)

@@ -485,26 +485,24 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let _ = TICKS_PER_SECOND;
 }
 
+/// Seconds an empty sequence's Timeline shows across its width.
+const EMPTY_SEQUENCE_SPAN_S: f64 = 30.0;
+
 /// The timeline view's animated state: eases zoom and scroll toward their targets (or jumps
 /// with animations off, #2325), follows the playhead while playing, brings it into view after a
 /// jump while stopped, and keeps the view inside the sequence's extent.
 fn animate_view(app: &mut FilmcraftApp, ctx: &egui::Context, content: Rect, seq_id: ItemId, seq: &Sequence) {
     let dt = ctx.input(|i| i.stable_dt).min(0.05) as f64;
+    // An empty sequence opens on a stretch long enough for a first clip or two, and keeps that
+    // zoom when they arrive: refitting to the first drop made the view jump under the pointer.
     let empty = seq.duration().seconds() <= 0.0;
-    let dur_s = seq.duration().seconds().max(1.0);
+    let dur_s = if empty { EMPTY_SEQUENCE_SPAN_S } else { seq.duration().seconds().max(1.0) };
     {
         let v = &mut app.ui.timeline;
-        if let Some(p) = v.fit_empty
-            && (!empty || v.target_pps != p)
-        {
-            v.fit_pending |= v.target_pps == p;
-            v.fit_empty = None;
-        }
         if v.fit_pending && content.width() > 50.0 {
             v.target_pps = (content.width() as f64 * 0.94 / dur_s).clamp(min_pps(seq.duration().seconds(), content.width()), 24_000.0);
             v.target_scroll = 0.0;
             v.fit_pending = false;
-            v.fit_empty = empty.then_some(v.target_pps);
         }
         // however the zoom was set (wheel, keys, the bar, a script), zooming out stops at the extent
         let floor = min_pps(seq.duration().seconds(), content.width());
