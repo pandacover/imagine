@@ -401,8 +401,9 @@ fn range_with_warnings(s: &Session, project: &Project, seq: ItemId, v: Option<&V
     Ok((Some(range), warnings))
 }
 
-/// Where exports go when no path is given: next to the saved project, else ~/Movies, else the
-/// home directory, else the temporary directory.
+/// Where exports go when no path is given: next to the saved project, else the user's video
+/// folder (~/Movies on macOS, ~/Videos on Windows and Linux), else the home directory, else the
+/// temporary directory.
 pub fn default_export_dir(s: &Session) -> PathBuf {
     if let Some(d) = s.path.as_deref().and_then(|p| Path::new(p).parent()).filter(|d| !d.as_os_str().is_empty()) {
         return d.to_path_buf();
@@ -412,8 +413,8 @@ pub fn default_export_dir(s: &Session) -> PathBuf {
         return PathBuf::from("/exports");
     }
     if let Some(h) = crate::media_browser::std_home_dir() {
-        let movies = Path::new(&h).join("Movies");
-        return if movies.is_dir() { movies } else { PathBuf::from(h) };
+        let home = PathBuf::from(&h);
+        return ["Movies", "Videos"].iter().map(|d| home.join(d)).find(|d| d.is_dir()).unwrap_or(home);
     }
     crate::temp_dir()
 }

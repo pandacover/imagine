@@ -480,17 +480,22 @@ fn clip_span(d: &mut Driver, clip: u64) -> (f64, f64) {
 }
 
 #[test]
-fn new_empty_sequence_fits_its_first_clip() {
+fn new_empty_sequence_keeps_its_zoom_when_the_first_clip_arrives() {
     let mut d = Driver::demo();
     let project = d.exec("project.inspect", json!({}));
     let item = first_movie(&project).expect("a movie in the demo project");
-    // an empty sequence fits its 1 s minimum; the clip placed into it afterwards is fitted again
+    // an empty sequence shows half a minute; the first clip leaves that zoom alone (refitting
+    // to it made the view jump under the pointer)
     d.exec("file.newSequence", json!({"name": "Empty"}));
     d.frames(30);
+    let pps = d.app().ui.timeline.target_pps;
+    let width = f64::from(d.app().last_timeline_width);
+    assert!((pps * 30.0 - width * 0.94).abs() < 2.0, "30 s across the view: {pps} px/s in {width} px");
     let clip = d.exec("timeline.place", json!({"item": item, "track": "V1", "seconds": 0}))["clips"][0].as_u64().expect("clip");
     d.frames(60);
+    assert_eq!(d.app().ui.timeline.target_pps, pps, "the zoom stayed");
     let (x_in, x_out) = clip_span(&mut d, clip);
-    assert!(x_out < 1600.0 && x_out - x_in > 500.0, "clip spans x {x_in}..{x_out}: not fitted to the 1600 px window");
+    assert!(x_out > x_in, "clip spans x {x_in}..{x_out}");
 
     // a zoom chosen while the sequence is still empty is kept
     d.exec("file.newSequence", json!({"name": "Zoomed"}));
@@ -744,7 +749,8 @@ fn new_sequence_opens_its_dialog() {
     assert_eq!(r["dialog"], "newSequence", "{r}");
     d.frames(10);
     assert_eq!(sequences(&mut d), n0, "nothing is made before OK");
-    assert_eq!(d.label("sequenceSettings.name"), format!("Sequence {:02}", n0 + 1));
+    // the demo's sequences are "Main Edit" and "Rough Cut": numbering starts at 01, not at 03
+    assert_eq!(d.label("sequenceSettings.name"), "Sequence 01");
     assert_eq!(d.label("sequenceSettings.timebase"), "23.976 frames/second");
     assert!(d.ids("sequenceSettings.tab.").iter().any(|i| i == "sequenceSettings.tab.tracks"));
     assert!(d.ids("sequenceSettings.tab.color").is_empty(), "New Sequence has General and Tracks");

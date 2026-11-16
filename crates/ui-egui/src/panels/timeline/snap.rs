@@ -16,7 +16,10 @@ fn snap_to(app: &mut FilmcraftApp, seq: &Sequence, layout: &Layout, t: Tick, exc
     if !app.session.state.snapping {
         return t;
     }
+    // the sequence's start is always an edge: a clip dropped a frame or two after 00:00 lands
+    // on it instead of leaving a sliver of a gap
     let mut cands: Vec<Tick> = Vec::with_capacity(64);
+    cands.push(Tick::ZERO);
     for tr in seq.all_tracks() {
         for it in &tr.items {
             if exclude.contains(&it.id) {

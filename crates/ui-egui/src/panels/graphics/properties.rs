@@ -495,11 +495,27 @@ fn text_section_header(
     open
 }
 
+/// The history command an Undo or Redo chord pressed in the Source Text field runs, consuming
+/// the press so the field's own undo doesn't also act on it.
+fn source_text_undo_key(ui: &egui::Ui) -> Option<&'static str> {
+    use egui::{Key, Modifiers};
+    ui.input_mut(|i| {
+        // Shift+Cmd+Z first: a plain Cmd+Z pattern also matches it with Shift held
+        if i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z) || i.consume_key(Modifiers::COMMAND, Key::Y) {
+            Some("edit.redo")
+        } else if i.consume_key(Modifiers::COMMAND, Key::Z) {
+            Some("edit.undo")
+        } else {
+            None
+        }
+    })
+}
+
 pub fn properties(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let t = app.tokens;
     let Some((clip, it)) = selected_graphic(app) else {
-        crate::dock::placeholder(ui, rect, &t, tl!("Select a graphic clip, or use the Type tool (T) on the Program monitor"));
-        let br = Rect::from_center_size(rect.center() + vec2(0.0, 30.0), vec2(150.0, 26.0));
+        let bottom = crate::dock::placeholder(ui, rect, &t, tl!("Select a graphic clip, or use the Type tool (T) on the Program monitor"));
+        let br = Rect::from_center_size(pos2(rect.center().x, bottom.max(rect.center().y + 8.0) + 22.0), vec2(150.0, 26.0));
         let resp = ui.put(br, egui::Button::new(tl!("Create new graphic")));
         app.auto.add("graphics.createNew", br, "Create new graphic");
         if resp.clicked()
@@ -593,16 +609,30 @@ pub fn properties(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                 _ => String::new(),
             };
             let before = s.clone();
+            let field = egui::Id::unique(("gfx-source-text", clip.0, l));
+            // Undo / Redo while typing here step the project's history, where the whole edit of the
+            // field is one step: egui's own text undo took back a character or two at a time
+            let undo = if ui.memory(|m| m.has_focus(field)) { source_text_undo_key(ui) } else { None };
+            let typing = field.with("typing");
             ui.horizontal(|ui| {
                 ui.add_space(14.0);
                 let r = crate::widgets::accessible_name(
-                    ui.add(egui::TextEdit::multiline(&mut s).desired_rows(2).desired_width(ui.available_width() - 8.0).font(Tokens::ui(12.0))),
+                    ui.add(egui::TextEdit::multiline(&mut s).id(field).desired_rows(2).desired_width(ui.available_width() - 8.0).font(Tokens::ui(12.0))),
                     "Source Text",
                 );
                 cx.autos.push(("graphics.sourceText".into(), r.rect, "Source Text".into()));
             });
-            if s != before {
-                cx.actions.push(("graphics.setText".into(), json!({"clip": clip.0, "layer": l, "text": s, "merge": true})));
+            if let Some(command) = undo {
+                ui.data_mut(|d| d.remove::<bool>(typing));
+                cx.actions.push((command.into(), json!({})));
+            } else if s != before {
+                // the first change since the field took focus begins the step, the rest fold into it
+                let merge = ui.data(|d| d.get_temp::<bool>(typing)).unwrap_or(false);
+                ui.data_mut(|d| d.insert_temp(typing, true));
+                cx.actions.push(("graphics.setText".into(), json!({"clip": clip.0, "layer": l, "text": s, "merge": merge})));
+            }
+            if !ui.memory(|m| m.has_focus(field)) {
+                ui.data_mut(|d| d.remove::<bool>(typing));
             }
             let family = match cx.value("font") {
                 ParamValue::Text(f) => f,
@@ -765,6 +795,11 @@ pub fn properties(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let key = egui::Id::unique("gfx-props-drag-step");
     let begun = ui.ctx().data(|d| d.get_temp::<Option<f64>>(key)).flatten();
     let mut wrote = false;
+    // the Program monitor shows the change in the next pass, not at the next input: typed text
+    // showed there a keystroke late
+    if !actions.is_empty() {
+        ui.ctx().request_repaint();
+    }
     for (cmd, mut p) in actions {
         // a drag of a property is one undo step: the first change of each press begins a new one,
         // the rest fold into it (like Effect Controls, #201 / #887)

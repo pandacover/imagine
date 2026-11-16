@@ -68,7 +68,8 @@ pub(super) fn preview_column(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Re
             let (start, end) = range_ticks(ex, &q);
             let span = filmcraft_time::TimeRange::from_bounds(start, end);
             let frames = rate.frame_at(end - Tick(1)).saturating_add(1).saturating_sub(rate.frame_at(start)).max(0);
-            let seconds = format!("{:.3}", span.duration.seconds());
+            // the same two decimals as the summary's Range line, so one duration reads one way
+            let seconds = format!("{:.2}", span.duration.seconds());
             let label = if frames == 1 {
                 tlf!("1 frame ({seconds} s)", seconds = seconds)
             } else {

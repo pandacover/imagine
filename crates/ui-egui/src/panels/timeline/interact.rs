@@ -987,7 +987,7 @@ fn drop_targets(app: &mut FilmcraftApp, ui: &mut egui::Ui, seq: &Sequence, layou
                 params["video"] = json!(source.video);
                 params["audio"] = json!(source.audio);
             }
-            if let Err(e) = crate::panels::clip_mismatch::execute(app, "timeline.place", params) {
+            if let Err(e) = crate::panels::clip_mismatch::execute(app, &ctx, "timeline.place", params) {
                 app.ui.status = e;
             }
             crate::panels::clear_drag(ui);
@@ -1000,13 +1000,21 @@ fn drop_targets(app: &mut FilmcraftApp, ui: &mut egui::Ui, seq: &Sequence, layou
         && app.timeline_drop_target(ui.ctx(), p)
     {
         let t = snap(app, seq, layout, rate.snap_nearest(layout.tick_at(p.x).max(Tick::ZERO)), &[]);
+        // a title over the footage goes on the first free track above the one under the pointer,
+        // as the drop does (`orAbove`); it was refused there with only a status-bar note
         let row = layout.row_at(p.y).cloned().filter(|r| r.kind == TrackKind::Video);
-        if let Some(row) = &row {
+        let shown = row.as_ref().and_then(|row| {
+            let free = (row.index..seq.video_tracks.len()).find(|&i| seq.video_tracks.get(i).is_some_and(|tr| tr.item_at(t).is_none() && !tr.locked))?;
+            layout.rows.iter().find(|r| r.kind == TrackKind::Video && r.index == free).cloned()
+        });
+        if let Some(row) = shown.as_ref().or(row.as_ref()) {
             let r = Rect::from_min_max(pos2(layout.x_of(t), row.rect.min.y + 1.0), pos2(layout.x_of(t) + 60.0, row.rect.max.y - 1.0));
+            ui.painter().rect_filled(r, 3.0, Color32::from_white_alpha(40));
             ui.painter().rect_stroke(r, 3.0, Stroke::new(1.5, Color32::WHITE), StrokeKind::Inside);
+            app.auto.add(&format!("timeline.dropPreview.V{}", row.index.saturating_add(1)), r, "tracks");
         }
         if ctx.input(|i| i.pointer.any_released()) {
-            let mut q = json!({"template": template, "time": t.0});
+            let mut q = json!({"template": template, "time": t.0, "orAbove": true});
             if let Some(row) = row {
                 q["track"] = json!(row.index);
             }
@@ -1034,7 +1042,7 @@ fn drop_targets(app: &mut FilmcraftApp, ui: &mut egui::Ui, seq: &Sequence, layou
             // one command, one undo step: the files go end to end from the drop point
             let ids: Vec<u64> = items.iter().map(|i| i.0).collect();
             let params = json!({"items": ids, "track": vt, "audioTrack": at, "time": start.0, "insert": false});
-            if let Err(e) = crate::panels::clip_mismatch::execute(app, "timeline.place", params) {
+            if let Err(e) = crate::panels::clip_mismatch::execute(app, &ctx, "timeline.place", params) {
                 app.ui.status = e;
             }
         }

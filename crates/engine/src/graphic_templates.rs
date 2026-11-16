@@ -1165,7 +1165,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "graphics.template.apply",
             "Apply Graphics Template",
             &[],
-            r#"{"template":id|name|path,"values":{control id or name: value}?,"time":ticks?,"track":index?}"#,
+            r#"{"template":id|name|path,"values":{control id or name: value}?,"time":ticks?,"track":index?,"orAbove":bool? (a busy track: the first free one above it, else a new one)}"#,
             has_seq,
             apply_template,
         ),
