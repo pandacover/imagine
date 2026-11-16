@@ -1574,8 +1574,7 @@ fn build() -> Vec<CommandSpec> {
                 if nv > 256 || na > 256 {
                     return Err(bad("file.newSequence", "at most 256 video and 256 audio tracks are supported"));
                 }
-                let n = s.project.sequences().count() + 1;
-                let name = str_p(p, "name").map(str::to_string).unwrap_or_else(|| format!("Sequence {n:02}"));
+                let name = str_p(p, "name").map(str::to_string).unwrap_or_else(|| s.project.next_sequence_name());
                 let seq_label = s.prefs.labels.defaults.sequence;
                 let id = s.edit("New Sequence", |pr, st2| {
                     let id = pr.new_sequence(&name, st, nv as usize, na as usize, None);

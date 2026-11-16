@@ -634,13 +634,15 @@ fn list(app: &mut FilmcraftApp, ui: &mut egui::Ui, r: Rect, entries: &[Entry], c
     }
 }
 
-/// A preview item for a file's thumbnail (files not in the project), or the project item.
+/// The project item for a file's thumbnail, or (`project` false, or a file not in the project) a
+/// preview item made from the file's probe.
 fn preview_item(
     app: &mut FilmcraftApp,
     ctx: &egui::Context,
     e: &Entry,
+    project: bool,
 ) -> Option<(Arc<Project>, ItemId, filmcraft_time::Tick, filmcraft_time::FrameRate, u32)> {
-    if let Some(i) = mb::item_for_path(&app.session, &e.path) {
+    if project && let Some(i) = mb::item_for_path(&app.session, &e.path) {
         let it = app.session.project.item(i)?;
         let w = it.as_media()?.info.video.as_ref()?.width;
         return Some((app.session.project.clone(), i, it.duration(), it.frame_rate(), w));
@@ -754,8 +756,16 @@ fn thumbnails(app: &mut FilmcraftApp, ui: &mut egui::Ui, r: Rect, entries: &[Ent
     });
 }
 
+/// The file's thumbnail. A file just imported (by dragging it out, say) keeps showing the frame
+/// it showed before while its project item's frame is on the way, or when the project item
+/// cannot give one (a probe still running): it never falls back to the placeholder icon.
 fn draw_preview(app: &mut FilmcraftApp, ui: &egui::Ui, ctx: &egui::Context, e: &Entry, r: Rect, frac: f32) -> bool {
-    let Some((proj, id, dur, rate, src_w)) = preview_item(app, ctx, e) else { return false };
+    let imported = mb::item_for_path(&app.session, &e.path).is_some();
+    draw_preview_of(app, ui, ctx, e, r, frac, true) || (imported && draw_preview_of(app, ui, ctx, e, r, frac, false))
+}
+
+fn draw_preview_of(app: &mut FilmcraftApp, ui: &egui::Ui, ctx: &egui::Context, e: &Entry, r: Rect, frac: f32, project: bool) -> bool {
+    let Some((proj, id, dur, rate, src_w)) = preview_item(app, ctx, e, project) else { return false };
     let t = filmcraft_time::Tick((dur.0 as f64 * frac as f64) as i64);
     let frame = rate.frame_at(crate::panels::project::quantize(t));
     let width = (r.width() as u32).clamp(96, 320);

@@ -25,7 +25,7 @@ fn clip_of(app: &FilmcraftApp, command: &str, params: &Value) -> Option<ItemId> 
 /// Opens the warning instead of running `command` when it would put a first clip in an empty
 /// sequence that doesn't match it; true when it did. Parameters that already answer it
 /// (`matchSequence`) and the setting turned off run the edit as it is.
-pub(crate) fn ask(app: &mut FilmcraftApp, command: &str, params: &Value) -> bool {
+pub(crate) fn ask(app: &mut FilmcraftApp, ctx: &egui::Context, command: &str, params: &Value) -> bool {
     if !app.session.prefs.timeline.clip_mismatch_warning || params.get("matchSequence").is_some() {
         return false;
     }
@@ -35,12 +35,16 @@ pub(crate) fn ask(app: &mut FilmcraftApp, command: &str, params: &Value) -> bool
     }
     app.clip_mismatch = Some((command.to_string(), params.clone()));
     app.dialog = Some(Dialog::ClipMismatch);
+    // The drop is decided in the Timeline's pass, after this pass drew its dialogs: without a
+    // repaint the question only showed at the next input (a second later, or a click, which then
+    // landed on the backdrop and threw the drop away).
+    ctx.request_repaint();
     true
 }
 
 /// Runs an edit dropped onto the Timeline, asking first when [`ask`] does.
-pub(crate) fn execute(app: &mut FilmcraftApp, command: &str, params: Value) -> Result<Value, String> {
-    if ask(app, command, &params) {
+pub(crate) fn execute(app: &mut FilmcraftApp, ctx: &egui::Context, command: &str, params: Value) -> Result<Value, String> {
+    if ask(app, ctx, command, &params) {
         return Ok(json!({"dialog": "clipMismatch"}));
     }
     app.session.execute(command, params).map_err(|e| e.to_string())
@@ -99,8 +103,10 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) -> bool {
         }
         return false;
     }
-    // (the modal's own close also fires on Escape: not while a drag is being cancelled, #580)
-    if r.should_close() && !ctx.input(|i| i.pointer.any_down()) {
+    // Only Escape answers "put nothing in" (not while a drag is being cancelled, #580). A click
+    // outside the dialog does nothing: it used to throw the dropped clip away without a word.
+    let escape = r.is_top_modal && !r.any_popup_open && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+    if escape && !ctx.input(|i| i.pointer.any_down()) {
         app.clip_mismatch = None;
         return false;
     }

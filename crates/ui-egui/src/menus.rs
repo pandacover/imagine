@@ -223,7 +223,7 @@ pub fn invoke(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, mut params:
         return Ok(Value::Null);
     }
     // Insert / Overwrite of a first clip that doesn't match the empty sequence: the Clip Mismatch Warning asks first
-    if matches!(id, "source.insert" | "source.overwrite") && crate::panels::clip_mismatch::ask(app, id, &params) {
+    if matches!(id, "source.insert" | "source.overwrite") && crate::panels::clip_mismatch::ask(app, ctx, id, &params) {
         return Ok(json!({"dialog": "clipMismatch"}));
     }
     if filmcraft_engine::source_monitor::source_command(id) && targets_source(app, &params) && params.get("target").is_none() {

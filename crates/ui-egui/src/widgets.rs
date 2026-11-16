@@ -67,9 +67,15 @@ fn hot_number_editor(ui: &mut Ui, label: &str, id: egui::Id, value: f64, range: 
     let edit_id = id.with("edit");
     let select_all_id = id.with("select-all");
     arrows_start_from_the_end(ui, edit_id, buf);
+    // Enter commits whether or not the field's own Enter handling gives up the focus this pass:
+    // a field that kept it stayed in edit mode with the value uncommitted
+    let enter = ui.memory(|m| m.has_focus(edit_id)) && ui.input(|i| i.key_pressed(egui::Key::Enter));
     let r = accessible_name(ui.add(egui::TextEdit::singleline(buf).id(edit_id).desired_width(56.0).font(Tokens::ui(12.0))), label);
     let mut out = None;
-    if r.lost_focus() {
+    if enter && holds_focus(&r) {
+        r.surrender_focus();
+    }
+    if r.lost_focus() || enter {
         // the field's own unit can be typed anywhere; calc ignores the common ones
         let typed = if suffix.trim().is_empty() { buf.clone() } else { buf.replace(suffix.trim(), "") };
         if let Some(v) = crate::calc::eval(&typed, value) {

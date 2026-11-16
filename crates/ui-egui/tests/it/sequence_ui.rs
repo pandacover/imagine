@@ -744,7 +744,8 @@ fn new_sequence_opens_its_dialog() {
     assert_eq!(r["dialog"], "newSequence", "{r}");
     d.frames(10);
     assert_eq!(sequences(&mut d), n0, "nothing is made before OK");
-    assert_eq!(d.label("sequenceSettings.name"), format!("Sequence {:02}", n0 + 1));
+    // the demo's sequences are "Main Edit" and "Rough Cut": numbering starts at 01, not at 03
+    assert_eq!(d.label("sequenceSettings.name"), "Sequence 01");
     assert_eq!(d.label("sequenceSettings.timebase"), "23.976 frames/second");
     assert!(d.ids("sequenceSettings.tab.").iter().any(|i| i == "sequenceSettings.tab.tracks"));
     assert!(d.ids("sequenceSettings.tab.color").is_empty(), "New Sequence has General and Tracks");
