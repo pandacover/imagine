@@ -1185,6 +1185,14 @@ fn builtin_presets_are_valid_and_unique() {
         assert!(p.builtin && !p.category.is_empty() && !p.description.is_empty(), "{}", p.name);
     }
     assert_eq!(presets::find_builtin("match source - adaptive high bitrate").unwrap().name, presets::DEFAULT_PRESET);
+    // creator and client delivery presets: portrait sizes fill the frame
+    for (name, size) in [("Instagram Reel 1080×1920", (1080, 1920)), ("Instagram Feed 4:5 1080×1350", (1080, 1350)), ("YouTube Shorts 1080×1920", (1080, 1920))]
+    {
+        let p = presets::find_builtin(name).unwrap();
+        assert_eq!((p.category.as_str(), p.settings.frame_size), ("Creator & Client", Some(size)), "{name}");
+        assert_eq!(p.settings.scaling, crate::settings::Scaling::ScaleToFill, "{name}");
+    }
+    assert_eq!(presets::find_builtin("Client Master ProRes 422 HQ").unwrap().settings.prores_profile, "hq");
     let json = serde_json::to_value(&all[0]).unwrap();
     let back: ExportPreset = serde_json::from_value(json).unwrap();
     assert_eq!(back.settings.adaptive_bitrate, Some(0.2));

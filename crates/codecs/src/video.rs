@@ -390,8 +390,34 @@ pub fn h264_threads() -> usize {
 
 pub fn h264_factory(e: &SampleEntry) -> Option<Result<Box<dyn VideoDecoder>>> {
     match &e.codec {
-        CodecConfig::Avc(a) => Some(H264Decoder::new(a.to_bytes()).map(|d| Box::new(d) as Box<dyn VideoDecoder>)),
+        CodecConfig::Avc(a) => {
+            let avcc = a.to_bytes();
+            // 8-bit 4:2:0 (and monochrome) only: say so before decoding, so a fallback decoder
+            // can take High 10 / High 4:2:2 streams (Sony XAVC S 4:2:2, XAVC S-I) instead of
+            // the source failing at its first picture (#626)
+            if let Ok(i) = crate::hw::NalStreamInfo::from_avcc(&avcc)
+                && (i.chroma_format_idc > 1 || i.bit_depth_luma > 8 || i.bit_depth_chroma > 8)
+            {
+                return Some(Err(CodecError::Unsupported(format!(
+                    "H.264 {}-bit {} (chroma_format_idc {}): our decoder reads 8-bit 4:2:0",
+                    i.bit_depth_luma.max(i.bit_depth_chroma),
+                    chroma_name(i.chroma_format_idc),
+                    i.chroma_format_idc
+                ))));
+            }
+            Some(H264Decoder::new(avcc).map(|d| Box::new(d) as Box<dyn VideoDecoder>))
+        }
         _ => None,
+    }
+}
+
+/// A `chroma_format_idc` as a name, for messages.
+fn chroma_name(idc: u32) -> &'static str {
+    match idc {
+        0 => "monochrome",
+        1 => "4:2:0",
+        2 => "4:2:2",
+        _ => "4:4:4",
     }
 }
 
@@ -487,7 +513,22 @@ impl VideoDecoder for HevcDecoder {
 
 pub fn hevc_factory(e: &SampleEntry) -> Option<Result<Box<dyn VideoDecoder>>> {
     match &e.codec {
-        CodecConfig::Hevc(c) => Some(HevcDecoder::new(c.to_bytes()).map(|d| Box::new(d) as Box<dyn VideoDecoder>)),
+        CodecConfig::Hevc(c) => {
+            let hvcc = c.to_bytes();
+            // Main / Main 10 4:2:0 only (no RExt): as for H.264, let a fallback decoder take
+            // 4:2:2 streams (Sony XAVC HS 4:2:2) when no hardware decoder did
+            if let Ok(i) = crate::hw::NalStreamInfo::from_hvcc(&hvcc)
+                && (i.chroma_format_idc > 1 || i.bit_depth_luma > 10 || i.bit_depth_chroma > 10)
+            {
+                return Some(Err(CodecError::Unsupported(format!(
+                    "HEVC {}-bit {} (chroma_format_idc {}): our decoder reads Main and Main 10 4:2:0",
+                    i.bit_depth_luma.max(i.bit_depth_chroma),
+                    chroma_name(i.chroma_format_idc),
+                    i.chroma_format_idc
+                ))));
+            }
+            Some(HevcDecoder::new(hvcc).map(|d| Box::new(d) as Box<dyn VideoDecoder>))
+        }
         _ => None,
     }
 }

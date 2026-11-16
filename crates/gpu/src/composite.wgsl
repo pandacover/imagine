@@ -22,6 +22,9 @@ struct U {
     q3: vec4<f32>,   // gamut matrix row 1, tone-mapping source peak cd/m²
     q4: vec4<f32>,   // gamut matrix row 2, tone-mapping target peak cd/m²
     q5: vec4<f32>,   // desaturation luma weights, desaturation on
+    q6: vec4<f32>,   // log decode table domain lo, hi; camera-gamut compression on; unused
+    // Log decode table (curve 4): `filmcraft_color::GpuTable`, 1024 values over lo..hi.
+    tab: array<vec4<f32>, 256>,
 };
 
 @group(0) @binding(0) var<uniform> u: U;
@@ -124,11 +127,50 @@ fn eetf(nits: f32, s: f32, d: f32) -> f32 {
 
 // Signal → working linear: `InputTransform::convert` (curve, HLG OOTF, gamut matrix, tone
 // mapping, desaturation into the working gamut). The CPU's decode tables clamp the signal to 0..1.
+// One value of the log decode table (`GpuTable::lookup`).
+fn tab_at(i: u32) -> f32 {
+    let q = u.tab[min(i, 1023u) / 4u];
+    let k = i % 4u;
+    if k == 0u { return q.x; }
+    if k == 1u { return q.y; }
+    if k == 2u { return q.z; }
+    return q.w;
+}
+fn tab_lookup(v: f32) -> f32 {
+    let span = u.q6.y - u.q6.x;
+    var p = 0.0;
+    if span > 0.0 { p = clamp((v - u.q6.x) / span, 0.0, 1.0) * 1023.0; }
+    let i = min(u32(p), 1022u);
+    let f = p - f32(i);
+    let a = tab_at(i);
+    return a + (tab_at(i + 1u) - a) * f;
+}
+
+// Camera-gamut compression towards the achromatic axis (`filmcraft_color::gamut_compress`).
+fn gamut_compress(c: vec3<f32>) -> vec3<f32> {
+    let th = 0.8; let lim = 1.25; let pw = 1.2;
+    let ach = max(max(c.r, c.g), c.b);
+    if ach <= 1e-9 { return max(c, vec3(0.0)); }
+    let s = (lim - th) / pow(pow((lim - th) / (1.0 - th), pw) - 1.0, 1.0 / pw);
+    var o = c;
+    for (var k = 0; k < 3; k++) {
+        let d = (ach - c[k]) / ach;
+        if d >= th {
+            let x = (d - th) / s;
+            let dc = th + s * x / pow(1.0 + pow(x, pw), 1.0 / pw);
+            o[k] = ach - dc * ach;
+        }
+    }
+    return o;
+}
+
 fn managed(rgb: vec3<f32>) -> vec3<f32> {
-    let v = clamp(rgb, vec3(0.0), vec3(1.0));
     let curve = u32(u.q0.y);
+    // the CPU's decode tables clamp the signal to their domain: 0..1, or the log table's own
+    let v = clamp(rgb, vec3(0.0), vec3(1.0));
     let white = u.q0.w;
     var c = v;
+    if curve == 4u { c = vec3(tab_lookup(rgb.r), tab_lookup(rgb.g), tab_lookup(rgb.b)); }
     if curve == 0u { c = srgb_to_linear(v); }
     if curve == 2u { c = vec3(pq1(v.r), pq1(v.g), pq1(v.b)) * (10000.0 / white); }
     if curve == 3u { c = hlg_inv(v); }
@@ -153,6 +195,9 @@ fn managed(rgb: vec3<f32>) -> vec3<f32> {
             }
             c = c * k;
         }
+    }
+    if u.q6.z > 0.5 {
+        c = gamut_compress(c);
     }
     if u.q5.w > 0.5 {
         let mn = min(min(c.r, c.g), c.b);

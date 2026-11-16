@@ -254,3 +254,39 @@ fn hdr_lumetri_and_mastering_metadata_through_commands() {
     let r = s.execute("media.colorInfo", json!({"item": item.0})).unwrap();
     assert!(r["hdrMetadata"].is_null() && r["toneMapPeakNits"].is_null(), "{r}");
 }
+
+/// Sony S-Log3 clips flag BT.709 in the stream; their Non-Real-Time metadata sidecar says S-Log3,
+/// so they import interpreted as S-Log3, and Interpret Footage ▸ auto keeps that.
+#[test]
+fn sony_slog3_clips_import_interpreted_as_slog3() {
+    let Some(ffmpeg) = filmcraft_testkit::oracle::ffmpeg_or_skip("color_tests") else { return };
+    let dir = std::path::PathBuf::from(tmp("sony"));
+    std::fs::create_dir_all(&dir).unwrap();
+    let clip = dir.join("C0001.MP4");
+    let ok = std::process::Command::new(&ffmpeg)
+        .args(["-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=64x36:rate=25:duration=0.4", "-c:v", "libx264", "-pix_fmt", "yuv420p"])
+        .arg(&clip)
+        .status()
+        .is_ok_and(|s| s.success());
+    if !ok {
+        return;
+    }
+    let mut s = Session::default();
+    let r = s.execute("file.import", json!({"paths": [clip.to_string_lossy()]})).unwrap();
+    let plain = r["items"][0].as_u64().unwrap();
+    assert_eq!(s.execute("media.colorInfo", json!({"item": plain})).unwrap()["override"], serde_json::Value::Null);
+    std::fs::write(
+        dir.join("C0001M01.XML"),
+        r#"<NonRealTimeMeta><AcquisitionRecord><Group name="CameraUnitMetadataSet"><Item name="CaptureGammaEquation" value="s-log3-cine"/><Item name="CaptureColorPrimaries" value="S-Gamut3.Cine"/></Group></AcquisitionRecord></NonRealTimeMeta>"#,
+    )
+    .unwrap();
+    let r = s.execute("file.import", json!({"paths": [clip.to_string_lossy()]})).unwrap();
+    let item = r["items"][0].as_u64().unwrap();
+    let info = s.execute("media.colorInfo", json!({"item": item})).unwrap();
+    assert_eq!(info["effective"], "slog3-sgamut3cine");
+    s.execute("clip.interpretFootage", json!({"items": [item], "colorSpace": "rec709"})).unwrap();
+    assert_eq!(s.execute("media.colorInfo", json!({"item": item})).unwrap()["effective"], "rec709");
+    s.execute("clip.interpretFootage", json!({"items": [item], "colorSpace": "auto"})).unwrap();
+    assert_eq!(s.execute("media.colorInfo", json!({"item": item})).unwrap()["effective"], "slog3-sgamut3cine");
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -1364,3 +1364,60 @@ mod stabilizer_corrections_cache {
         }
     }
 }
+
+/// Walking shots: strong smoothing takes the footstep bounce out, and on a turn the smoothed
+/// path is pulled back so Auto-scale never needs more than Maximum Scale (no black borders).
+mod stabilizer_walking {
+    use super::super::temporal::{StabilizerPath, corrections, corrections_within, cover_scale};
+    use filmcraft_geom::Affine;
+
+    /// 10 s at 30 fps: a 2 Hz footstep bounce of ±6 px, a little sway, and a 90 px pan half-way.
+    fn walk() -> StabilizerPath {
+        let n = 300;
+        let pos = |k: usize| {
+            let t = k as f64 / 30.0;
+            let bob = 6.0 * (std::f64::consts::TAU * 2.0 * t).sin();
+            let sway = 3.0 * (std::f64::consts::TAU * 1.0 * t).sin();
+            let pan = 90.0 / (1.0 + (-(t - 5.0) * 4.0).exp());
+            (pan + sway, bob)
+        };
+        let steps = (1..n)
+            .map(|k| {
+                let (a, b) = (pos(k - 1), pos(k));
+                Affine::translate(b.0 - a.0, b.1 - a.1)
+            })
+            .collect();
+        StabilizerPath { w: 480, h: 270, steps, fps: 30.0 }
+    }
+
+    /// Mean frame-to-frame change of the stabilised vertical position (the bounce left).
+    fn bounce(path: &StabilizerPath, corr: &[Affine]) -> f64 {
+        let mut y = 0.0;
+        let mut ys = vec![corr[0].f];
+        for (k, s) in path.steps.iter().enumerate() {
+            y += s.f;
+            ys.push(y + corr[k + 1].f);
+        }
+        ys.windows(2).map(|w| (w[1] - w[0]).abs()).sum::<f64>() / ys.len() as f64
+    }
+
+    #[test]
+    fn strong_smoothing_within_the_zoom_budget() {
+        let p = walk();
+        let raw_bounce = bounce(&p, &vec![Affine::IDENTITY; p.steps.len() + 1]);
+        let free = corrections(&p, 45.0, false, false);
+        let worst = |c: &[Affine]| c.iter().map(|x| cover_scale(x, 480.0, 270.0, 4.0)).fold(1.0, f64::max);
+        assert!(worst(&free) > 1.05, "plain smoothing drifts past the budget: {}", worst(&free));
+        let kept = corrections_within(&p, 45.0, false, false, Some(1.05));
+        assert!(worst(&kept) <= 1.05 + 1e-6, "kept within the budget: {}", worst(&kept));
+        let left = bounce(&p, &kept);
+        assert!(left < raw_bounce * 0.3, "bounce {left} vs raw {raw_bounce}");
+        // a budget large enough changes nothing
+        let roomy = corrections_within(&p, 45.0, false, false, Some(4.0));
+        assert!(roomy.iter().zip(&free).all(|(a, b)| (a.e - b.e).abs() < 1e-9 && (a.f - b.f).abs() < 1e-9));
+        // hostile budgets are ignored, not a crash
+        for z in [f64::NAN, 0.0, -1.0, f64::INFINITY] {
+            assert_eq!(corrections_within(&p, 45.0, false, false, Some(z)).len(), free.len());
+        }
+    }
+}

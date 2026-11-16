@@ -261,17 +261,19 @@ impl InputTransform {
     }
 
     /// The transform as plain numbers for a shader, which evaluates the curve and the BT.2390
-    /// EETF directly instead of sampling the tables. `None` for what a shader does not do: log
-    /// curves and the camera-gamut compression.
+    /// EETF directly instead of sampling the tables. Log curves go over as [`GpuTable`], a
+    /// resampling of this transform's own decode table, and the camera-gamut compression as a
+    /// flag (the shader runs [`gamut_compress`]).
     pub fn gpu_params(&self) -> Option<GpuInputParams> {
         let curve = match self.source.curve() {
             Curve::Sdr | Curve::Srgb => GpuCurve::Sdr,
             Curve::Linear => GpuCurve::Linear,
             Curve::Pq => GpuCurve::Pq,
             Curve::Hlg => GpuCurve::Hlg,
-            Curve::Log(_) => return None,
+            Curve::Log(_) => GpuCurve::Table,
         };
-        if self.compress {
+        let table = (curve == GpuCurve::Table).then(|| GpuTable::of(&self.table));
+        if table.as_ref().is_some_and(|t| !t.values.iter().all(|v| v.is_finite())) {
             return None;
         }
         Some(GpuInputParams {
@@ -280,18 +282,55 @@ impl InputTransform {
             matrix: (!self.identity_matrix).then_some(self.matrix),
             tone: self.tone.as_ref().map(|t| (t.src_peak_nits as f32, t.dst_peak_nits as f32)),
             desaturate: self.desaturate,
+            compress: self.compress,
+            table,
         })
     }
 }
 
 /// How a shader decodes a channel ([`decode_channel`] without the table): SDR with the sRGB curve,
-/// linear, PQ in working units (cd/m² over [`REFERENCE_WHITE_NITS`]), HLG to scene light.
+/// linear, PQ in working units (cd/m² over [`REFERENCE_WHITE_NITS`]), HLG to scene light, or
+/// through a [`GpuTable`] (log curves).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GpuCurve {
     Sdr,
     Linear,
     Pq,
     Hlg,
+    Table,
+}
+
+/// Entries of a [`GpuTable`]. Log curves are smooth in the signal, so linear interpolation between
+/// 1024 points stays within 0.1 % of the CPU's 8192-entry table (above black), and the table fits
+/// in a uniform block on every backend.
+pub const GPU_TABLE_LEN: usize = 1024;
+
+/// A decode table for a shader: `values[i]` is the decoded value at signal
+/// `lo + (hi − lo) · i / (GPU_TABLE_LEN − 1)`, linearly interpolated between and clamped at the
+/// ends, as [`DecodeTable::lookup`] does.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GpuTable {
+    pub lo: f32,
+    pub hi: f32,
+    pub values: [f32; GPU_TABLE_LEN],
+}
+
+impl GpuTable {
+    /// `t` resampled to [`GPU_TABLE_LEN`] points over its own domain.
+    pub fn of(t: &DecodeTable) -> Self {
+        let n = (GPU_TABLE_LEN - 1) as f32;
+        GpuTable { lo: t.lo, hi: t.hi, values: std::array::from_fn(|i| t.lookup(t.lo + (t.hi - t.lo) * i as f32 / n)) }
+    }
+
+    /// The shader's lookup (for tests).
+    pub fn lookup(&self, v: f32) -> f32 {
+        let n = GPU_TABLE_LEN - 1;
+        let p = if self.hi > self.lo { ((v - self.lo) / (self.hi - self.lo)).clamp(0.0, 1.0) * n as f32 } else { 0.0 };
+        let i = (p as usize).min(n - 1);
+        let f = p - i as f32;
+        let (a, b) = (self.values.get(i).copied().unwrap_or(0.0), self.values.get(i + 1).copied().unwrap_or(0.0));
+        a + (b - a) * f
+    }
 }
 
 /// [`InputTransform`] for a shader ([`InputTransform::gpu_params`]), stage by stage as
@@ -307,6 +346,10 @@ pub struct GpuInputParams {
     pub tone: Option<(f32, f32)>,
     /// Luma weights to desaturate into the working gamut with ([`desaturate_into_gamut`]).
     pub desaturate: Option<[f32; 3]>,
+    /// The camera-gamut compression ([`gamut_compress`]) after the tone mapping.
+    pub compress: bool,
+    /// The decode table, for [`GpuCurve::Table`].
+    pub table: Option<GpuTable>,
 }
 
 /// Whether gamut `a` lies inside gamut `b` (so no compression is needed going a → b).
@@ -523,9 +566,21 @@ mod tests {
         let sdr2020 = p(ColorSpace::Rec2020).unwrap();
         assert_eq!((sdr2020.curve, sdr2020.tone), (GpuCurve::Sdr, None));
         assert!(sdr2020.matrix.is_some() && sdr2020.desaturate.is_some());
-        // log curves and camera-gamut compression stay on the CPU
+        // log curves go over as a table that matches the CPU's, with the gamut compression
         for cs in ColorSpace::ALL.into_iter().filter(|c| c.is_log()) {
-            assert_eq!(p(cs), None, "{cs:?}");
+            let g = p(cs).unwrap_or_else(|| panic!("{cs:?}"));
+            let t = InputTransform::new(cs, Range::Limited, &ColorPipeline::REC709, None);
+            let table = g.table.unwrap();
+            assert_eq!(g.curve, GpuCurve::Table);
+            assert_eq!(g.compress, cs.gamut() != crate::Gamut::Bt709, "{cs:?}");
+            for i in 0..=1200 {
+                let v = -0.1 + i as f32 / 1000.0;
+                let (a, b) = (t.table.lookup(v), table.lookup(v));
+                // below black (negative light, shown as black) Apple Log's square-root toe is
+                // steeper than any table follows; elsewhere the two agree to well under a code
+                let tol = if a < 0.0 { 1e-3 } else { 1e-3 * a.abs() + 1e-5 };
+                assert!((a - b).abs() <= tol, "{cs:?} at {v}: {a} vs {b}");
+            }
         }
     }
 

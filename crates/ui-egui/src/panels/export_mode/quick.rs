@@ -9,7 +9,11 @@ use super::{Align2, Color32, DEFAULT_PRESET, FilmcraftApp, Reg, Sense, Tokens, b
 fn quick_presets(app: &FilmcraftApp) -> Vec<String> {
     let mut v: Vec<String> =
         app.session.export_presets.all().iter().filter(|p| app.session.export_presets.is_favorite(&p.name)).map(|p| p.name.clone()).collect();
-    for p in builtin_presets().into_iter().filter(|p| p.category == "Match Source" || p.category == "Web & Social").map(|p| p.name) {
+    for p in builtin_presets()
+        .into_iter()
+        .filter(|p| p.category == "Match Source" || p.category == "Web & Social" || p.category == "Creator & Client")
+        .map(|p| p.name)
+    {
         if !v.contains(&p) {
             v.push(p);
         }

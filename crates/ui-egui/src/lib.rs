@@ -61,6 +61,7 @@ mod ime_reset;
 pub mod links;
 pub mod menus;
 pub mod native_dialogs;
+pub mod page_bar;
 pub mod panels;
 pub mod perf;
 #[cfg(not(target_arch = "wasm32"))]

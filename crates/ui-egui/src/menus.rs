@@ -23,6 +23,14 @@ macro_rules! uic {
 
 pub const UI_COMMANDS: &[UiCommand] = &[
     uic!("window.dockAction", "Docking Action", [], None),
+    uic!("window.pageBar", "Page Bar", ["Window"], None),
+    uic!("window.simpleMode", "Simple Mode", ["Window"], None),
+    uic!("page.media", "Media Page", [], None),
+    uic!("page.edit", "Edit Page", [], None),
+    uic!("page.color", "Color Page", [], None),
+    uic!("page.effects", "Effects Page", [], None),
+    uic!("page.audio", "Audio Page", [], None),
+    uic!("page.deliver", "Deliver Page", [], None),
     uic!("window.dockPanel", "Dock Panel", [], None),
     uic!("window.floatPanel", "Undock Panel", [], None),
     uic!("window.closePanel", "Close Panel", [], None),
@@ -208,6 +216,9 @@ pub fn invoke(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, mut params:
     // Project search box would select items.
     if id == "edit.selectAll" && select_all_in_text_field(ctx) {
         return Ok(Value::Null);
+    }
+    if let Some(r) = crate::page_bar::invoke(app, id, &params) {
+        return r;
     }
     // Select All / Deselect All act on the Project panel's items when it has focus (#168), only
     // what the shown bin lists (#456). Here and not in the key handling: on macOS the native menu
@@ -915,6 +926,9 @@ pub fn menu_items(app: &FilmcraftApp) -> Vec<MenuItem> {
         if let Some(on) = engine_toggle(&app.session, &it.id) {
             it.checked = Some(on);
         }
+        if let Some(on) = crate::page_bar::checked(app, &it.id) {
+            it.checked = Some(on);
+        }
         if it.id.starts_with("view.") {
             it.checked = crate::panels::monitor_view::checked(app, &it.id).or(crate::panels::menu_dialogs::checked(app, &it.id));
             it.enabled &= crate::panels::monitor_view::enabled(app, &it.id);
@@ -922,6 +936,9 @@ pub fn menu_items(app: &FilmcraftApp) -> Vec<MenuItem> {
     }
     crate::panels::workspaces::menu(app, &mut v);
     open_recent(&mut v, &app.session, |n| app.ui.language.tr(n).to_string());
+    if app.ui.simple_mode {
+        v.retain(|it| !crate::page_bar::hidden_in_simple_mode(&it.id));
+    }
     v
 }
 

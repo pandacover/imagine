@@ -628,13 +628,15 @@ impl GpuCompositor {
         let taps = if footprint > 1.25 { footprint.ceil().min(4.0) } else { 1.0 };
         let _ = Matrix::Bt709;
         // colour management (q0..q5), stage by stage as `InputTransform::apply`
-        let q = src.input.map_or([0.0; 24], |p| {
+        let q = src.input.as_ref().map_or([0.0; 28], |p| {
             let curve = match p.curve {
                 filmcraft_color::GpuCurve::Sdr => 0.0,
                 filmcraft_color::GpuCurve::Linear => 1.0,
                 filmcraft_color::GpuCurve::Pq => 2.0,
                 filmcraft_color::GpuCurve::Hlg => 3.0,
+                filmcraft_color::GpuCurve::Table => 4.0,
             };
+            let (lo, hi) = p.table.as_ref().map_or((0.0, 1.0), |t| (t.lo, t.hi));
             let (hl, hk) = p.hlg.unwrap_or(([0.0; 3], 0.0));
             let mx = p.matrix.unwrap_or([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]);
             let (sp, dp) = p.tone.unwrap_or((0.0, 0.0));
@@ -648,6 +650,7 @@ impl GpuCompositor {
                 mx[1][0], mx[1][1], mx[1][2], sp,
                 mx[2][0], mx[2][1], mx[2][2], dp,
                 dl[0], dl[1], dl[2], on(p.desaturate.is_some()),
+                lo, hi, on(p.compress), 0.0,
             ];
             q
         });
@@ -683,7 +686,10 @@ impl GpuCompositor {
         ];
         let mut u = [0.0; UNIFORM_FLOATS];
         u[..28].copy_from_slice(&base);
-        u[28..].copy_from_slice(&q);
+        u[28..56].copy_from_slice(&q);
+        if let Some(t) = src.input.as_ref().and_then(|p| p.table.as_ref()) {
+            u[56..].copy_from_slice(&t.values);
+        }
         u
     }
 
@@ -1211,8 +1217,9 @@ struct SrcInfo {
     input: Option<filmcraft_color::GpuInputParams>,
 }
 
-/// Floats in a layer's uniform block (`U` in `composite.wgsl`: 13 vec4).
-const UNIFORM_FLOATS: usize = 52;
+/// Floats in a layer's uniform block (`U` in `composite.wgsl`: 14 vec4, then the log decode
+/// table of [`filmcraft_color::GPU_TABLE_LEN`] floats).
+const UNIFORM_FLOATS: usize = 56 + filmcraft_color::GPU_TABLE_LEN;
 
 /// Poll a future once: wgpu's native error scopes resolve immediately. `None` if it is still
 /// pending (then the caller assumes the worst).

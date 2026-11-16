@@ -256,6 +256,10 @@ pub struct MediaPrefs {
     /// "Enable proxies": playback and monitors read attached proxies (the monitors' Toggle
     /// Proxies button). Export always uses full-resolution media.
     pub enable_proxies: bool,
+    /// "Create proxies for clips this computer can't play smoothly": on import, clips only the
+    /// FFmpeg fallback decoder reads (10-bit 4:2:2 H.264 without a hardware decoder for it, say)
+    /// get proxies made in the background, and proxies are turned on.
+    pub auto_proxies: bool,
     pub allow_duplicate_media: bool,
     pub create_folder_for_imported_projects: bool,
     pub auto_hide_dependent_clips: bool,
@@ -280,6 +284,7 @@ impl Default for MediaPrefs {
             enable_xmp_linking: false,
             include_captions_on_import: true,
             enable_proxies: false,
+            auto_proxies: true,
             allow_duplicate_media: false,
             create_folder_for_imported_projects: false,
             auto_hide_dependent_clips: false,

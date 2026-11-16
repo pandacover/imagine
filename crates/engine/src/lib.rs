@@ -54,6 +54,7 @@ pub mod settings;
 pub mod shortcut_presets;
 pub mod shortcuts;
 pub mod source_monitor;
+pub mod speed_ramp;
 pub mod sync;
 pub mod transcript;
 pub mod trim;
@@ -1416,6 +1417,8 @@ mod sequence_tools_tests;
 mod settings_tests;
 #[cfg(test)]
 mod shortcuts_tests;
+#[cfg(test)]
+mod speed_ramp_tests;
 #[cfg(test)]
 mod split_edit_ripple_trim_tests;
 #[cfg(test)]

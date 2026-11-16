@@ -416,3 +416,20 @@ fn render_previews_ignore_proxies() {
     assert!(q > 30.0, "preview rendered from full-resolution media, not the (different) proxy: {q:.1} dB");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Automatic proxies are only for clips the external fallback decoder alone reads: a movie our
+/// own decoder plays imports as before, with no proxy job and proxies left off.
+#[test]
+fn clips_our_decoders_read_get_no_automatic_proxies() {
+    let root = tmp_dir("proxy-auto");
+    let a = root.join("a.mov");
+    make_movie(&a, DemoScene::OceanSunset, W, H, 6);
+    let mut s = Session::default();
+    assert!(s.prefs.media.auto_proxies, "on by default");
+    let r = s.execute("file.import", json!({"paths": [a.to_string_lossy()]})).unwrap();
+    assert!(r.get("autoProxies").is_none(), "{r}");
+    assert!(!s.prefs.media.enable_proxies);
+    let item = filmcraft_project::ItemId(r["items"][0].as_u64().unwrap());
+    assert_eq!(crate::proxies::auto_proxies(&mut s, &[item]).unwrap(), serde_json::Value::Null);
+    let _ = std::fs::remove_dir_all(&root);
+}

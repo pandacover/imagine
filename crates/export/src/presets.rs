@@ -13,7 +13,7 @@ use crate::{ExportSettings, Format};
 #[serde(rename_all = "camelCase")]
 pub struct ExportPreset {
     pub name: String,
-    /// Browser group: "Match Source", "Web & Social", "Broadcast", "Image Sequence", "Animated
+    /// Browser group: "Match Source", "Web & Social", "Creator & Client", "Broadcast", "Image Sequence", "Animated
     /// GIF", "Audio Only" (user presets default to "User").
     #[serde(default)]
     pub category: String,
@@ -96,6 +96,7 @@ pub fn builtin_presets() -> Vec<ExportPreset> {
     let ms = "Match Source";
     let web = "Web & Social";
     let bc = "Broadcast";
+    let cc = "Creator & Client";
     let vertical = ExportSettings { scaling: Scaling::ScaleToFill, ..h264(Some((1080, 1920)), 12_000, 16_000) };
     vec![
         p(DEFAULT_PRESET, ms, "H.264 at the sequence's frame size and rate; bitrate adapts to the frame size (0.2 bits per pixel)", adaptive(0.2)),
@@ -118,6 +119,37 @@ pub fn builtin_presets() -> Vec<ExportPreset> {
             ExportSettings { bitrate_mode: BitrateMode::Vbr2Pass, ..h264(Some((3840, 2160)), 50_000, 65_000) },
         ),
         p("Social Vertical 1080×1920", web, "H.264 9:16 portrait for short-form social video, scaled to fill, 12 Mbps", vertical),
+        p(
+            "Instagram Reel 1080×1920",
+            cc,
+            "H.264 9:16 for Reels, scaled to fill, VBR 2 pass, 16 Mbps (high enough that the platform's re-encode keeps food and texture detail)",
+            ExportSettings { scaling: Scaling::ScaleToFill, bitrate_mode: BitrateMode::Vbr2Pass, ..h264(Some((1080, 1920)), 16_000, 20_000) },
+        ),
+        p(
+            "Instagram Feed 4:5 1080×1350",
+            cc,
+            "H.264 4:5 portrait for the feed, scaled to fill, VBR 2 pass, 12 Mbps",
+            ExportSettings { scaling: Scaling::ScaleToFill, bitrate_mode: BitrateMode::Vbr2Pass, ..h264(Some((1080, 1350)), 12_000, 16_000) },
+        ),
+        p(
+            "YouTube Shorts 1080×1920",
+            cc,
+            "H.264 9:16 for Shorts, scaled to fill, VBR 1 pass, 16 Mbps",
+            ExportSettings { scaling: Scaling::ScaleToFill, ..h264(Some((1080, 1920)), 16_000, 20_000) },
+        ),
+        p(
+            "Client Review 1080p",
+            cc,
+            "Small H.264 1920×1080 for sending a cut to a client for comments, VBR 1 pass, 8 Mbps",
+            h264(Some((1920, 1080)), 8_000, 10_000),
+        ),
+        p(
+            "Client Master 4K H.264",
+            cc,
+            "High-bitrate H.264 3840×2160 delivery master, VBR 2 pass, 80 Mbps",
+            ExportSettings { bitrate_mode: BitrateMode::Vbr2Pass, ..h264(Some((3840, 2160)), 80_000, 100_000) },
+        ),
+        p("Client Master ProRes 422 HQ", cc, "QuickTime ProRes 422 HQ at the sequence's size: the grading-safe master to hand over", mov(Format::ProRes, "hq")),
         p("Apple ProRes 422 HQ", bc, "QuickTime, ProRes 422 HQ, 24-bit 48 kHz PCM", mov(Format::ProRes, "hq")),
         p("Apple ProRes 422", bc, "QuickTime, ProRes 422, 24-bit 48 kHz PCM", mov(Format::ProRes, "standard")),
         p("Apple ProRes 422 LT", bc, "QuickTime, ProRes 422 LT, 24-bit 48 kHz PCM", mov(Format::ProRes, "lt")),

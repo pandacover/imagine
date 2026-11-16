@@ -526,6 +526,43 @@ fn copy_for_ingest(s: &mut Session, item: ItemId, path: &str, dir: &Path) -> Res
 }
 
 /// Ingest freshly imported items per the project's ingest settings.
+/// Proxy preset for [`auto_proxies`]: 1920 wide for 4K and 10-bit, so grading log footage on the
+/// proxy shows no banding, and decoded by our own ProRes decoder on any machine.
+pub const AUTO_PROXY_PRESET: &str = "prores_proxy_half";
+
+/// Settings ▸ Media ▸ Create proxies for clips this computer can't play smoothly: of the
+/// imported `items`, the movies without a proxy that only the external fallback decoder reads
+/// ([`filmcraft_codecs::file_needs_fallback_decoder`]) get proxies made in the background, and
+/// proxies are turned on so playback uses them. Null when nothing needed one.
+pub fn auto_proxies(s: &mut Session, items: &[ItemId]) -> Result<Value> {
+    if !s.prefs.media.auto_proxies {
+        return Ok(Value::Null);
+    }
+    let slow: Vec<u64> = items
+        .iter()
+        .filter_map(|&i| {
+            let (clip, path, _) = media_path(&s.project, i)?;
+            let movie = clip.info.kind == MediaKind::Movie && clip.info.video.is_some() && clip.proxy.is_none();
+            (movie && filmcraft_codecs::file_needs_fallback_decoder(Path::new(&path))).then_some(i.0)
+        })
+        .collect();
+    if slow.is_empty() {
+        return Ok(Value::Null);
+    }
+    let job = create(s, &json!({"items": slow, "preset": AUTO_PROXY_PRESET}))?;
+    if !s.prefs.media.enable_proxies {
+        let mut next = s.prefs.clone();
+        next.media.enable_proxies = true;
+        s.set_prefs(next).map_err(|e| EngineError::Other(format!("saving preferences: {e}")))?;
+    }
+    let n = slow.len();
+    s.toast(format!(
+        "Making proxies for {n} clip{} this computer can't play smoothly. Editing uses them once ready; export always uses the originals.",
+        if n == 1 { "" } else { "s" }
+    ));
+    Ok(json!({"items": slow, "preset": AUTO_PROXY_PRESET, "job": job}))
+}
+
 pub fn ingest(s: &mut Session, items: &[ItemId]) -> Result<Value> {
     let ing = s.project.settings.ingest.clone();
     if !ing.enabled || items.is_empty() {

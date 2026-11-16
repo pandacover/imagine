@@ -24,6 +24,7 @@
 pub mod apv;
 pub mod audio;
 pub mod avi;
+pub mod camera_meta;
 pub mod gop;
 pub mod hw;
 mod hw_frame;
@@ -111,24 +112,89 @@ pub fn video_decoder_registered(f: VideoDecoderFactory) -> bool {
 
 /// Create a decoder for a sample entry.
 pub fn make_video_decoder(entry: &filmcraft_isobmff::SampleEntry) -> Result<Box<dyn VideoDecoder>> {
-    let g = factories().read().unwrap_or_else(|e| e.into_inner());
-    for f in g.iter() {
-        if let Some(r) = f(entry) {
-            return r;
-        }
+    let r = {
+        let g = factories().read().unwrap_or_else(|e| e.into_inner());
+        g.iter().find_map(|f| f(entry))
+    };
+    or_fallback(entry, r)
+}
+
+fn fallback_factories() -> &'static RwLock<Vec<VideoDecoderFactory>> {
+    static F: std::sync::OnceLock<RwLock<Vec<VideoDecoderFactory>>> = std::sync::OnceLock::new();
+    F.get_or_init(|| RwLock::new(Vec::new()))
+}
+
+/// Register a last-resort video decoder factory (an external decoder such as the FFmpeg reader in
+/// `filmcraft-ffmpeg`). Fallback factories are tried, in registration order, only for streams every
+/// regular factory declines or reports as [`CodecError::Unsupported`] (10-bit 4:2:2 H.264, say), so
+/// they never replace our own or the hardware decoders for streams those can decode.
+pub fn register_fallback_video_decoder(f: VideoDecoderFactory) {
+    let mut g = fallback_factories().write().unwrap_or_else(|e| e.into_inner());
+    if !g.iter().any(|x| std::ptr::fn_addr_eq(*x, f)) {
+        g.push(f);
     }
-    Err(CodecError::Unsupported(format!("no decoder for {} video", entry.codec.name())))
+}
+
+/// Whether `f` is among the registered fallback video decoder factories.
+pub fn fallback_video_decoder_registered(f: VideoDecoderFactory) -> bool {
+    fallback_factories().read().unwrap_or_else(|e| e.into_inner()).iter().any(|x| std::ptr::fn_addr_eq(*x, f))
+}
+
+/// `r` (the result of the regular factories), or a fallback decoder when there was none or the
+/// stream is unsupported. Other errors (a damaged configuration record) are kept: a fallback would
+/// only hide them.
+fn or_fallback(entry: &filmcraft_isobmff::SampleEntry, r: Option<Result<Box<dyn VideoDecoder>>>) -> Result<Box<dyn VideoDecoder>> {
+    let err = match r {
+        Some(Err(CodecError::Unsupported(e))) => e,
+        Some(other) => return other,
+        None => format!("no decoder for {} video", entry.codec.name()),
+    };
+    let fallbacks = fallback_factories().read().unwrap_or_else(|e| e.into_inner()).clone();
+    match fallbacks.iter().find_map(|f| f(entry)) {
+        Some(Ok(d)) => Ok(d),
+        Some(Err(fe)) => Err(CodecError::Unsupported(format!("{err}; fallback decoder: {fe}"))),
+        None => Err(CodecError::Unsupported(err)),
+    }
+}
+
+/// Whether `entry` can only be decoded by a registered fallback decoder: our own decoders don't
+/// support it and every other registered decoder (the hardware ones) declines it. Such clips
+/// decode on the CPU through an external program, too slowly for smooth 4K playback, so the
+/// engine makes proxies for them. Hardware decoders are only asked when ours can't decode the
+/// stream, so ordinary files never open a hardware session here.
+pub fn needs_fallback_decoder(entry: &filmcraft_isobmff::SampleEntry) -> bool {
+    if fallback_factories().read().unwrap_or_else(|e| e.into_inner()).is_empty() {
+        return false;
+    }
+    if matches!(BUILTIN_FACTORIES.iter().find_map(|f| f(entry)), Some(Ok(_))) {
+        return false;
+    }
+    let r = {
+        let g = factories().read().unwrap_or_else(|e| e.into_inner());
+        g.iter().find_map(|f| f(entry))
+    };
+    matches!(r, None | Some(Err(CodecError::Unsupported(_))))
+}
+
+/// [`needs_fallback_decoder`] for the video track of the MP4 / MOV file at `path` (false for
+/// other files and files that can't be read).
+pub fn file_needs_fallback_decoder(path: &std::path::Path) -> bool {
+    let Ok(r) = filmcraft_media::reader::FileReader::open(path) else { return false };
+    let src = Src(std::sync::Arc::new(r));
+    let Ok(file) = filmcraft_isobmff::open(&src) else { return false };
+    file.tracks
+        .iter()
+        .filter(|t| t.kind == filmcraft_isobmff::TrackKind::Video && !t.samples.is_empty())
+        .find_map(|t| t.entries.first())
+        .is_some_and(needs_fallback_decoder)
 }
 
 /// Create one of our own (software) decoders for a sample entry, skipping registered factories:
 /// what a hardware decoder falls back to when it fails mid-stream.
+/// Streams our decoders do not support go to a registered fallback decoder
+/// ([`register_fallback_video_decoder`]).
 pub fn software_video_decoder(entry: &filmcraft_isobmff::SampleEntry) -> Result<Box<dyn VideoDecoder>> {
-    for f in BUILTIN_FACTORIES {
-        if let Some(r) = f(entry) {
-            return r;
-        }
-    }
-    Err(CodecError::Unsupported(format!("no decoder for {} video", entry.codec.name())))
+    or_fallback(entry, BUILTIN_FACTORIES.iter().find_map(|f| f(entry)))
 }
 
 /// Openers for the engine's media pool (MP4/MOV, Matroska/WebM, MXF, Ogg Opus/Vorbis, MPEG TS/PS and
