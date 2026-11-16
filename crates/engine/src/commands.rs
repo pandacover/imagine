@@ -983,6 +983,7 @@ fn import_source(
         v.frame_rate = crate::settings::timebase_rate(&s.prefs.media.indeterminate_timebase);
     }
     let path_s = path.to_string();
+    let camera_space = info.video.as_ref().and_then(|_| filmcraft_codecs::camera_meta::camera_color_space(std::path::Path::new(path)));
     s.media.allow(path);
     let id = s.edit(&format!("Import {name}"), |p, _| {
         Ok(p.add_item(
@@ -991,7 +992,8 @@ fn import_source(
             ItemKind::Media(Box::new(MediaClip {
                 media: MediaRef::File { path: path_s },
                 info,
-                interpret: Default::default(),
+                // Sony S-Log3 clips say BT.709 in the stream: interpret them as recorded
+                interpret: filmcraft_project::Interpretation { color_space: camera_space, ..Default::default() },
                 mark_in: None,
                 mark_out: None,
                 markers: vec![],
@@ -1574,8 +1576,7 @@ fn build() -> Vec<CommandSpec> {
                 if nv > 256 || na > 256 {
                     return Err(bad("file.newSequence", "at most 256 video and 256 audio tracks are supported"));
                 }
-                let n = s.project.sequences().count() + 1;
-                let name = str_p(p, "name").map(str::to_string).unwrap_or_else(|| format!("Sequence {n:02}"));
+                let name = str_p(p, "name").map(str::to_string).unwrap_or_else(|| s.project.next_sequence_name());
                 let seq_label = s.prefs.labels.defaults.sequence;
                 let id = s.edit("New Sequence", |pr, st2| {
                     let id = pr.new_sequence(&name, st, nv as usize, na as usize, None);
@@ -1785,6 +1786,17 @@ fn build() -> Vec<CommandSpec> {
                     Value::Null
                 }
             };
+            // clips only the FFmpeg fallback reads play too slowly at 4K: proxies (unless ingest
+            // already makes them)
+            let ingest_proxies = ingest.get("job").is_some_and(|j| !j.is_null());
+            let auto = if ingest_proxies {
+                Value::Null
+            } else {
+                crate::proxies::auto_proxies(s, &item_ids).unwrap_or_else(|e| {
+                    errors.push(format!("proxies: {e}"));
+                    Value::Null
+                })
+            };
             let mut out = if !ingest.is_null() {
                 json!({"items": ids, "sequences": sequences, "documents": reports, "errors": errors, "ingest": ingest})
             } else if reports.is_empty() {
@@ -1794,6 +1806,9 @@ fn build() -> Vec<CommandSpec> {
             };
             if !image_sequences.is_empty() {
                 out["imageSequences"] = json!(image_sequences);
+            }
+            if !auto.is_null() {
+                out["autoProxies"] = auto;
             }
             // Newly imported files may resolve paths the project already listed as offline
             // (issue #110): rebuild s.offline.missing so the "Media missing" badge clears, and drop
@@ -3998,6 +4013,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::shortcuts::commands());
     v.extend(crate::relink::commands());
     v.extend(crate::proxies::commands());
+    v.extend(crate::speed_ramp::commands());
     v.extend(crate::project_manager::commands());
     v.extend(crate::masks::commands());
     v.extend(crate::presets::commands());

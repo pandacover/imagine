@@ -65,7 +65,9 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
             let sst = app.ui.panels.scopes.clone();
             match crate::panels::scopes::frame_signal(app, &ctx, "reference", frame, &sst, 3) {
                 Some(sf) => crate::panels::scopes::draw(app, ui, area, &st.scopes, &sf, &sst, "reference.scopes"),
-                None => crate::dock::placeholder(ui, area, &t, "…"),
+                None => {
+                    crate::dock::placeholder(ui, area, &t, "…");
+                }
             }
             elems.push(("reference.picture".into(), area, "reference scopes".into()));
             let resp = ui.interact(area, egui::Id::unique("reference-area"), Sense::click());

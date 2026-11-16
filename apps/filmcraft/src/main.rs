@@ -270,6 +270,7 @@ fn app_creator(launch: Launch, graphics: graphics::GraphicsStart, created: Arc<A
             }
         }
         let mut app = FilmcraftApp::new(session);
+        filmcraft_ui_egui::page_bar::creator_layout(&mut app);
         app.set_startup_update_check(true);
         app.graphics_notice = notice;
         if recover == Some(false) {
@@ -447,9 +448,12 @@ fn register_gpu_frame_renderer() {
 /// Put the OS hardware video decoders in front of our own. Registered in a statement of its own:
 /// a log macro does not evaluate its arguments while no logger takes its level, which left the
 /// hardware decoders out of every run.
+/// Also registers the FFmpeg fallback decoder for camera formats our decoders do not read yet.
 fn register_hardware_decoders() -> filmcraft_platform::Availability {
     let hardware = filmcraft_platform::register();
     log::info!("hardware decoding: {hardware:?}");
+    let ffmpeg = filmcraft_ffmpeg::register();
+    log::info!("ffmpeg fallback decoding: {ffmpeg:?}");
     hardware
 }
 

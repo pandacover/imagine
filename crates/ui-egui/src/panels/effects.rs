@@ -55,7 +55,15 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                 }
                 continue;
             }
-            let mut items: Vec<_> = defs.iter().filter(|d| d.category.first() == Some(&top)).filter(|d| crate::i18n::matches_query(d.name, filter)).collect();
+            if app.ui.simple_mode && crate::page_bar::folder_hidden_in_simple_mode(&[top]) {
+                continue;
+            }
+            let mut items: Vec<_> = defs
+                .iter()
+                .filter(|d| d.category.first() == Some(&top))
+                .filter(|d| !(app.ui.simple_mode && crate::page_bar::folder_hidden_in_simple_mode(d.category)))
+                .filter(|d| crate::i18n::matches_query(d.name, filter))
+                .collect();
             // Premiere lists effect folders and effects alphabetically (obsolete ones last)
             if top == "Video Effects" || top == "Legacy" {
                 items.sort_by_key(|d| (d.category.get(1) == Some(&"Obsolete"), d.category.get(1).copied().unwrap_or(""), d.name.to_ascii_lowercase()));

@@ -201,6 +201,22 @@ fn escape_puts_nothing_in() {
     assert_eq!((d.settings(), d.clips()), (SEQUENCE, 0));
 }
 
+/// A click outside the warning (on the time ruler, say) leaves it open: it used to close it,
+/// which threw the dropped clip away without a word.
+#[test]
+fn a_click_outside_the_warning_keeps_the_drop() {
+    let mut d = Driver::new();
+    let movie = d.movie();
+    d.drag_to_timeline(movie);
+    assert_eq!(d.dialog(), json!("ClipMismatch"));
+    d.click("timeline.ruler");
+    d.frames(3);
+    assert_eq!(d.dialog(), json!("ClipMismatch"), "still asking");
+    assert_eq!(d.clips(), 0);
+    d.click("clipMismatch.keep");
+    assert_eq!((d.settings(), d.clips()), (SEQUENCE, 2), "the dropped clip went in");
+}
+
 #[test]
 fn with_the_warning_turned_off_the_clip_goes_in_as_it_is() {
     let mut d = Driver::new();

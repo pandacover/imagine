@@ -576,7 +576,7 @@ fn user_presets_persist_with_favourites_import_and_export() {
     let favs = s.execute("export.presets.list", json!({"favorites": true})).unwrap()["presets"].as_array().unwrap().len();
     assert_eq!(favs, 2);
     let hits = s.execute("export.presets.list", json!({"query": "prores"})).unwrap()["presets"].as_array().unwrap().len();
-    assert_eq!(hits, 8, "seven QuickTime ProRes presets and MXF OP1a ProRes 422 HQ");
+    assert_eq!(hits, 9, "seven QuickTime ProRes presets, Client Master ProRes 422 HQ and MXF OP1a ProRes 422 HQ");
     // #1371: the query also matches the format id and the normalised label
     let h264_only = s.execute("export.presets.list", json!({"format": "h264"})).unwrap()["presets"].as_array().unwrap().len();
     let mut count = |q: &str| s.execute("export.presets.list", json!({"query": q})).unwrap()["presets"].as_array().unwrap().len();

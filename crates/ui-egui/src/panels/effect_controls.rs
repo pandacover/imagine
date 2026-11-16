@@ -637,9 +637,17 @@ pub(crate) fn param_row(
         }
     }
     if pd.animatable {
-        let sw = Rect::from_center_size(pos2(x, r.center().y), vec2(14.0, 14.0));
-        let resp = ui.interact(sw, egui::Id::unique(("sw", clip.0, idx, pkey)), Sense::click()).on_hover_text(tl!("Toggle animation"));
-        icons::paint(ui.painter(), sw, Icon::Stopwatch, if param.is_animated() { t.accent } else { t.text_dim });
+        // the stopwatch turns keyframing on: drawn as bright as the property's name, on a hover
+        // background, so it reads as a button (it was dim enough to miss)
+        let sw = Rect::from_center_size(pos2(x, r.center().y), vec2(16.0, 16.0));
+        let resp = ui
+            .interact(sw.expand(2.0), egui::Id::unique(("sw", clip.0, idx, pkey)), Sense::click())
+            .on_hover_text(if param.is_animated() { tl!("Stop animating (removes keyframes)") } else { tl!("Animate: add keyframes over time") })
+            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        if resp.hovered() {
+            ui.painter().rect_filled(sw.expand(2.0), 3.0, t.hover);
+        }
+        icons::paint(ui.painter(), sw, Icon::Stopwatch, if param.is_animated() { t.accent } else { t.text });
         if resp.clicked() {
             actions.push(("effects.toggleAnimation".into(), with_mask(json!({"clip": clip.0, "effect": idx, "param": pd.id}))));
         }
@@ -729,33 +737,37 @@ fn param_value_widget(
     match (&pd.kind, value) {
         (ParamKind::Float { min, max, soft_min, soft_max, unit, decimals }, ParamValue::Float(v)) => {
             let speed = ((soft_max - soft_min) / 400.0).max(0.01);
-            let (_, nv) =
+            let (r, nv) =
                 crate::widgets::hot_number(vui, crate::i18n::t(pd.label), id, *v, HotNumberOptions::new(speed, (*min, *max), *decimals as usize, unit, &t));
+            app.auto.add(&format!("effectControls.{}.{pkey}.value", e.effect), r.rect, pd.label);
             if let Some(nv) = nv {
                 set = Some(json!(nv));
             }
         }
         (ParamKind::Angle, ParamValue::Float(v)) => {
-            let (_, nv) = crate::widgets::hot_number(vui, crate::i18n::t(pd.label), id, *v, HotNumberOptions::new(0.5, (-36000.0, 36000.0), 1, "°", &t));
+            let (r, nv) = crate::widgets::hot_number(vui, crate::i18n::t(pd.label), id, *v, HotNumberOptions::new(0.5, (-36000.0, 36000.0), 1, "°", &t));
+            app.auto.add(&format!("effectControls.{}.{pkey}.value", e.effect), r.rect, pd.label);
             if let Some(nv) = nv {
                 set = Some(json!(nv));
             }
         }
         (ParamKind::Point, ParamValue::Vec2(p)) => {
-            let (_, nx) = crate::widgets::hot_number(
+            let (rx, nx) = crate::widgets::hot_number(
                 vui,
                 &format!("{} X", crate::i18n::t(pd.label)),
                 id.with("x"),
                 p.x,
                 HotNumberOptions::new(1.0, (-100_000.0, 100_000.0), 1, "", &t),
             );
-            let (_, ny) = crate::widgets::hot_number(
+            let (ry, ny) = crate::widgets::hot_number(
                 vui,
                 &format!("{} Y", crate::i18n::t(pd.label)),
                 id.with("y"),
                 p.y,
                 HotNumberOptions::new(1.0, (-100_000.0, 100_000.0), 1, "", &t),
             );
+            app.auto.add(&format!("effectControls.{}.{pkey}.x", e.effect), rx.rect, pd.label);
+            app.auto.add(&format!("effectControls.{}.{pkey}.y", e.effect), ry.rect, pd.label);
             if nx.is_some() || ny.is_some() {
                 set = Some(json!([nx.unwrap_or(p.x), ny.unwrap_or(p.y)]));
             }

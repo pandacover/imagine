@@ -126,6 +126,9 @@ pub(crate) fn place_video_clip(
     let seq_id = s.state.active_sequence.ok_or(EngineError::NoSequence)?;
     let t = time_p(s, p, "").unwrap_or_else(|| s.playhead());
     let want_track = u64_p(p, "track").map(|v| v as usize);
+    // `orAbove`: a busy `track` hands the clip to the first free, unlocked track above it (a
+    // title dropped on the footage goes over it), else to a new one
+    let or_above = bool_p(p, "orAbove").unwrap_or(false);
     let name = name.to_string();
     s.edit(label, |pr, st| {
         let (w, h, rate) = {
@@ -153,6 +156,16 @@ pub(crate) fn place_video_clip(
         let free = |tr: &filmcraft_project::Track| !tr.items.iter().any(|i| i.range().overlaps(&range));
         let idx = match want_track {
             Some(i) if i < q.video_tracks.len() && free(&q.video_tracks[i]) => i,
+            Some(i) if i < q.video_tracks.len() && or_above => {
+                match (i..q.video_tracks.len()).find(|&k| free(&q.video_tracks[k]) && !q.video_tracks[k].locked) {
+                    Some(k) => k,
+                    None => {
+                        let n = q.video_tracks.len() + 1;
+                        q.video_tracks.push(filmcraft_project::Track::new(track_id, TrackKind::Video, format!("Video {n}")));
+                        q.video_tracks.len() - 1
+                    }
+                }
+            }
             Some(i) if i < q.video_tracks.len() => return Err(bad(cmd, format!("V{} is not free here", i + 1))),
             _ => {
                 let top = q.video_tracks.iter().rposition(|tr| tr.item_at(t).is_some()).map_or(0, |k| k + 1);

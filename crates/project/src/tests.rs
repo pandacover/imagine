@@ -394,3 +394,19 @@ fn source_par_follows_interpret_footage_subclips_and_sequences() {
     assert_eq!(p.conformed_source_size(adj, (4, 3)), Some((1440.0, 1080.0)));
     assert_eq!(p.source_par(ItemId(987_654_321)), None);
 }
+
+/// A new sequence's default name: the first free `Sequence NN`, not the sequence count plus one,
+/// so a project holding "Main Edit" and "Rough Cut" starts at `Sequence 01`.
+#[test]
+fn next_sequence_name_takes_the_first_free_number() {
+    let mut p = Project::new("Test");
+    assert_eq!(p.next_sequence_name(), "Sequence 01");
+    p.new_sequence("Main Edit", SequenceSettings::default(), 1, 1, None);
+    p.new_sequence("Rough Cut", SequenceSettings::default(), 1, 1, None);
+    assert_eq!(p.next_sequence_name(), "Sequence 01");
+    p.new_sequence("Sequence 01", SequenceSettings::default(), 1, 1, None);
+    p.new_sequence("Sequence 03", SequenceSettings::default(), 1, 1, None);
+    assert_eq!(p.next_sequence_name(), "Sequence 02");
+    p.new_sequence("Sequence 02", SequenceSettings::default(), 1, 1, None);
+    assert_eq!(p.next_sequence_name(), "Sequence 04");
+}

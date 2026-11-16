@@ -320,11 +320,19 @@ fn interpret(s: &mut Session, p: &Value) -> Result<Value> {
     if cs.is_none() && par.is_none() {
         return Err(bad(CMD, "need `colorSpace` (auto or a colour space id) or `pixelAspect`"));
     }
+    // "auto" goes back to what the file says: its camera metadata (Sony S-Log3), else the stream
+    let camera: Vec<Option<ColorSpace>> = items
+        .iter()
+        .map(|i| match (cs, s.project.item(*i).and_then(|it| it.as_media()).map(|m| &m.media)) {
+            (Some(None), Some(filmcraft_project::MediaRef::File { path })) => filmcraft_codecs::camera_meta::camera_color_space(std::path::Path::new(path)),
+            _ => None,
+        })
+        .collect();
     s.edit("Interpret Footage", |pr, _| {
-        for i in &items {
+        for (i, cam) in items.iter().zip(&camera) {
             if let Some(ItemKind::Media(m)) = pr.item_mut(*i).map(|it| &mut it.kind) {
                 if let Some(cs) = cs {
-                    m.interpret.color_space = cs;
+                    m.interpret.color_space = cs.or(*cam);
                 }
                 if let Some(par) = par {
                     m.interpret.par = par;

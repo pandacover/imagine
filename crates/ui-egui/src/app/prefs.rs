@@ -166,7 +166,7 @@ impl FilmcraftApp {
         let show = |v: &mut state::TimelineView, s: filmcraft_engine::project::SequenceView| {
             (v.pps, v.target_pps, v.scroll, v.target_scroll) = (s.pps, s.pps, s.scroll, s.scroll);
             (v.v_scroll, v.a_scroll, v.video_track_h, v.audio_track_h) = (s.v_scroll, s.a_scroll, s.video_track_h, s.audio_track_h);
-            (v.fit_pending, v.fit_empty) = (false, None);
+            v.fit_pending = false;
         };
         if self.timeline_view_of != Some(active) {
             self.timeline_view_of = Some(active);
@@ -178,7 +178,7 @@ impl FilmcraftApp {
                 None => {
                     let d = state::TimelineView::default();
                     (v.v_scroll, v.a_scroll, v.video_track_h, v.audio_track_h) = (0.0, 0.0, d.video_track_h, d.audio_track_h);
-                    (v.fit_pending, v.fit_empty) = (true, None);
+                    v.fit_pending = true;
                     self.timeline_view_last = None;
                 }
             }

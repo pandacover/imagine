@@ -21,6 +21,7 @@ pub mod mask;
 pub mod mixer;
 pub mod multicam;
 pub mod narration;
+pub mod ramp;
 pub mod transcript;
 pub mod vtransition;
 
@@ -283,6 +284,16 @@ impl Project {
     }
     pub fn sequences(&self) -> impl Iterator<Item = &ProjectItem> {
         self.items.values().filter(|i| matches!(i.kind, ItemKind::Sequence(_)))
+    }
+
+    /// The name a new sequence gets when none is given: the first `Sequence NN` (from
+    /// `Sequence 01`) that no sequence in the project already has. A project whose sequences
+    /// are named otherwise ("Main Edit", "Rough Cut") starts at `Sequence 01`, and a name a
+    /// deleted sequence freed is used again.
+    pub fn next_sequence_name(&self) -> String {
+        let taken: std::collections::HashSet<&str> = self.sequences().map(|i| i.name.as_str()).collect();
+        // one more candidate than there are sequences always holds a free name
+        (1..=taken.len().saturating_add(1)).map(|n| format!("Sequence {n:02}")).find(|name| !taken.contains(name.as_str())).unwrap_or_default()
     }
 
     /// The part of a nested-sequence clip's timeline range that lies past the end of the nested

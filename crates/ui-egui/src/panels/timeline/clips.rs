@@ -251,7 +251,8 @@ pub(super) fn draw_clip(
     // name band (View ▸ the wrench menu's Show Video Names / Show Audio Names)
     // a hidden name keeps the multicam angle and the speed, which say something the name does not
     let names = if kind == TrackKind::Video { app.ui.timeline.show_video_names } else { app.ui.timeline.show_audio_names };
-    let mut label = if names { it.name.clone() } else { String::new() };
+    // a graphic clip shows what it says ("Tomo Test"), not the template it came from ("Title – Centered")
+    let mut label = if names { graphic_text(it).unwrap_or_else(|| it.name.clone()) } else { String::new() };
     if let Some(m) = it.multicam.filter(|m| m.enabled) {
         let cam = app.session.project.sequence(it.item).and_then(|q| q.cameras().cameras.get(m.angle as usize).map(|c| c.name.clone()));
         label = if names { format!("[MC{}] {}", m.angle + 1, cam.unwrap_or(label)) } else { format!("[MC{}]", m.angle + 1) };
@@ -299,9 +300,30 @@ pub(super) fn draw_clip(
     // 1 pt black separator at the clip's left edge
     p.line_segment([pos2(body.min.x + 0.5, body.min.y), pos2(body.min.x + 0.5, body.max.y)], Stroke::new(1.0, Color32::BLACK));
     if selected {
-        p.rect_stroke(body.shrink(1.0), 0.0, Stroke::new(1.0, Color32::BLACK), StrokeKind::Inside);
-        p.rect_stroke(body, 0.0, Stroke::new(2.0, t.clip_selected_border), StrokeKind::Inside);
+        // plain to see over thumbnails and every label colour: the clip lightens, under a
+        // bright accent outline
+        p.rect_filled(body, 0.0, Color32::from_white_alpha(36));
+        p.rect_stroke(body.shrink(2.0), 0.0, Stroke::new(1.0, Color32::BLACK), StrokeKind::Inside);
+        p.rect_stroke(body, 0.0, Stroke::new(2.5, t.accent), StrokeKind::Inside);
     }
+}
+
+/// The words a graphic clip shows: its text layers' text on one line, or `None` for a clip
+/// without text (any other clip, or a graphic whose text is empty).
+pub(super) fn graphic_text(it: &TrackItem) -> Option<String> {
+    let words: Vec<&str> = it
+        .effects
+        .iter()
+        .filter(|e| e.effect == filmcraft_project::graphic::TEXT_LAYER)
+        .filter_map(|e| match e.params.get("text").map(|p| &p.value) {
+            Some(filmcraft_project::ParamValue::Text(s)) => Some(s.as_str()),
+            _ => None,
+        })
+        .flat_map(str::lines)
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    (!words.is_empty()).then(|| words.join(" "))
 }
 
 /// 45° hatching over `r` (transitions, and the empty end of a nested sequence clip).

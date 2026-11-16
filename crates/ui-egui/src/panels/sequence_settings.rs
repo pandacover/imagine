@@ -99,7 +99,6 @@ pub fn open(app: &mut FilmcraftApp) {
 /// `file.newSequence` would name it, with three video and three audio tracks.
 pub fn open_new(app: &mut FilmcraftApp) {
     let st = SequenceSettings::default();
-    let n = app.session.project.sequences().count() + 1;
     app.ui.sequence_settings = SequenceSettingsDraft {
         tab: "general".into(),
         new_sequence: true,
@@ -117,7 +116,7 @@ pub fn open_new(app: &mut FilmcraftApp) {
         working_space: st.color.working.id().into(),
         wide_gamut: st.color.wide_gamut,
         auto_tone_map: st.color.auto_tone_map,
-        name: format!("Sequence {n:02}"),
+        name: app.session.project.next_sequence_name(),
     };
     app.dialog = Some(crate::Dialog::SequenceSettings);
 }

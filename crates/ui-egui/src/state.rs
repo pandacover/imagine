@@ -207,10 +207,6 @@ pub struct TimelineView {
     /// The playhead the view last saw: a jump while stopped (Home, End, edit points) scrolls to it.
     #[serde(skip)]
     pub seen_playhead: Option<(filmcraft_project::ItemId, f64)>,
-    /// The zoom a fit gave an empty sequence (which fits its 1 s minimum): the first clip to arrive
-    /// fits again, unless the zoom was changed in between.
-    #[serde(skip)]
-    pub fit_empty: Option<f64>,
     /// Audio tracks showing track keyframes instead of clip keyframes: track id → lane
     /// (`volume`, `pan`, `mute`, `send.<i>.level`, `fx.<slot>.<param>`).
     #[serde(default)]
@@ -238,14 +234,13 @@ impl Default for TimelineView {
             audio_track_h: 56.0,
             header_w: 204.0,
             show_thumbnails: true,
-            thumbnail_mode: ThumbnailMode::Head,
+            thumbnail_mode: ThumbnailMode::Continuous,
             show_waveforms: true,
             show_video_names: true,
             show_audio_names: true,
             follow: true,
             fit_pending: true,
             seen_playhead: None,
-            fit_empty: None,
             track_lanes: Default::default(),
         }
     }
@@ -255,11 +250,12 @@ impl Default for TimelineView {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ThumbnailMode {
     /// The clip's first frame at its head.
-    #[default]
     Head,
     /// The first frame at the head and the last one at the tail.
     HeadAndTail,
-    /// Frames side by side across the whole clip.
+    /// Frames side by side across the whole clip (a filmstrip): the default, so a clip shows
+    /// what happens along it, not only how it starts.
+    #[default]
     Continuous,
 }
 
@@ -479,6 +475,14 @@ pub struct UiState {
     /// The status bar (hints, messages, job progress). An app that embeds FilmCraft can hide it.
     #[serde(default = "shown")]
     pub show_status_bar: bool,
+    /// Window ▸ Page Bar: the Media / Edit / Color / Effects / Audio / Deliver tabs at the bottom.
+    /// Off in a bare `UiState`; the desktop app turns it on ([`crate::page_bar::creator_layout`]).
+    #[serde(default)]
+    pub show_page_bar: bool,
+    /// Window ▸ Simple Mode: hide studio-only menus and effect folders ([`crate::page_bar`]).
+    /// Off in a bare `UiState`; the desktop app turns it on.
+    #[serde(default)]
+    pub simple_mode: bool,
     pub dark: bool,
     /// Lumetri scopes visible in the Program monitor area.
     pub show_scopes: bool,
@@ -1025,6 +1029,8 @@ impl Default for UiState {
             show_menu_bar: true,
             show_header: true,
             show_status_bar: true,
+            show_page_bar: false,
+            simple_mode: false,
             dark: true,
             show_scopes: false,
             status: String::new(),

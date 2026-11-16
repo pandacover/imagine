@@ -1841,6 +1841,7 @@ dependencies = [
  "egui",
  "filmcraft-engine",
  "filmcraft-export",
+ "filmcraft-ffmpeg",
  "filmcraft-gpu",
  "filmcraft-platform",
  "filmcraft-project",
@@ -1966,6 +1967,7 @@ dependencies = [
  "filmcraft-codecs",
  "filmcraft-engine",
  "filmcraft-export",
+ "filmcraft-ffmpeg",
  "filmcraft-gpu",
  "filmcraft-media",
  "filmcraft-mpegts",
@@ -2123,6 +2125,19 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "web-time",
+]
+
+[[package]]
+name = "filmcraft-ffmpeg"
+version = "0.15.0"
+dependencies = [
+ "filmcraft-codecs",
+ "filmcraft-color",
+ "filmcraft-frame",
+ "filmcraft-isobmff",
+ "filmcraft-testkit",
+ "filmcraft-time",
+ "log",
 ]
 
 [[package]]

@@ -439,6 +439,7 @@ pub(super) static CATEGORIES: &[Category] = &[
             b("media.enableXmpLinking", "Enable clip and XMP metadata linking", false),
             b("media.includeCaptionsOnImport", "Include captions on import", false),
             b("media.enableProxies", "Enable proxies", true),
+            b("media.autoProxies", "Create proxies for clips this computer can't play smoothly", true),
             b("media.allowDuplicateMedia", "Allow duplicate media during project import", false),
             b("media.createFolderForImportedProjects", "Create folder for imported projects", false),
             b("media.autoHideDependentClips", "Automatically Hide Dependent Clips", false),
